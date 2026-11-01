@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Big Game: who's likely to pop this week</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1b2a3a; --chalk:#f3f5f0; --panel:#ffffff; --line:#d9dfd5;
+  --slate:#5d6b78; --mark:#e0b72d; --hit:#2f7d4f; --err:#b3402f;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#e8edf2; --chalk:#101a24; --panel:#18242f; --line:#2a3947;
+    --slate:#93a1ae; --mark:#e8c547; --hit:#5fb882; --err:#e8806f;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--chalk);color:var(--ink);font:400 16px/1.45 var(--body);
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
+h1{font:700 44px/1 var(--display);margin:8px 0 4px;letter-spacing:.2px}
+.sub{color:var(--slate);margin:0 0 20px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+input,select,button{font:500 16px var(--body);color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px}
+input[type=text]{flex:1 1 180px}
+input[type=number]{width:84px}
+button{cursor:pointer}
+button.primary{background:var(--ink);color:var(--chalk);border-color:var(--ink)}
+:focus-visible{outline:3px solid var(--mark);outline-offset:2px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;
+  padding:10px 14px;color:var(--slate)}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--mark)}
+h2{font:600 24px/1.1 var(--display);margin:24px 0 8px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:end;
+  padding:12px 0;border-bottom:1px solid var(--line)}
+.who{font-weight:500}
+.meta{color:var(--slate);font-size:14px;grid-column:1}
+.pct{font:700 32px/1 var(--display);grid-row:1 / span 2;grid-column:2;text-align:right}
+.field{grid-column:1 / -1;height:10px;margin-top:8px;border-radius:2px;position:relative;
+  background:repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 10%);
+  border:1px solid var(--line)}
+.field i{position:absolute;inset:0 auto 0 0;background:var(--mark);border-right:3px solid var(--ink)}
+.status{color:var(--slate);padding:24px 0}
+.status.err{color:var(--err)}
+.note{color:var(--slate);font-size:14px;margin-top:28px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Big Game</h1>
+  <p class="sub">Chance each player has a big fantasy game this week, based on recent usage and the defense they face.</p>
+
+  <div class="controls">
+    <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
+    <input id="season" type="number" aria-label="Season">
+    <input id="week" type="number" min="1" max="18" aria-label="Week">
+    <button class="primary" id="go">Show picks</button>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
+    <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
+  </div>
+
+  <div id="out" aria-live="polite"></div>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Football is high-variance, so treat these as odds, not promises.</p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const out = $("out");
+let tab = "mine";
+
+function el(tag, cls, text){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function status(msg, err){ out.replaceChildren(el("p", "status" + (err ? " err" : ""), msg)); }
+
+function playerRow(p){
+  const r = el("div", "row");
+  r.append(el("div", "who", p.player_display_name));
+  const pct = Math.round(p.big_game_prob * 100);
+  r.append(el("div", "pct", pct + "%"));
+  const l3 = p.fantasy_points_ppr_L3 == null ? "" : `, ${p.fantasy_points_ppr_L3.toFixed(1)} pts a game lately`;
+  r.append(el("div", "meta", `${p.position}, ${p.team} vs ${p.opponent_team}${l3}`));
+  const f = el("div", "field"); const bar = el("i"); bar.style.width = Math.min(pct, 100) + "%";
+  f.append(bar); r.append(f);
+  return r;
+}
+
+async function api(path){
+  const r = await fetch(path);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Something went wrong.");
+  return r.json();
+}
+
+async function load(){
+  const season = $("season").value, week = $("week").value, user = $("user").value.trim();
+  localStorage.setItem("bg_user", user);
+  try {
+    if (tab === "top"){
+      status("Building this week's picks…");
+      const rows = await api(`/api/top?season=${season}&week=${week}`);
+      out.replaceChildren(...rows.map(playerRow));
+    } else {
+      if (!user) return status("Enter your Sleeper username, then tap Show picks.");
+      status("Loading your leagues…");
+      const leagues = await api(`/api/roster?username=${encodeURIComponent(user)}&season=${season}&week=${week}`);
+      if (!leagues.length) return status("No leagues found for that season.");
+      out.replaceChildren(...leagues.flatMap(lg => [
+        el("h2", "", lg.league),
+        ...(lg.players.length ? lg.players.map(playerRow)
+            : [el("p", "status", "None of your players are playing this week.")])
+      ]));
+    }
+  } catch (e){ status(e.message, true); }
+}
+
+function setTab(t){
+  tab = t;
+  $("tab-mine").setAttribute("aria-selected", t === "mine");
+  $("tab-top").setAttribute("aria-selected", t === "top");
+  load();
+}
+$("go").onclick = load;
+$("user").addEventListener("keydown", e => { if (e.key === "Enter") load(); });
+$("tab-mine").onclick = () => setTab("mine");
+$("tab-top").onclick = () => setTab("top");
+
+(async () => {
+  $("user").value = localStorage.getItem("bg_user") || "";
+  const d = await api("/api/defaults").catch(() => ({season: 2025, week: 9}));
+  $("season").value = d.season; $("week").value = d.week;
+  $("user").value ? load() : setTab("top");
+})();
+</script>
+</body>
+</html>
