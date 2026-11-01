@@ -60,6 +60,11 @@ h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
   border:1px solid var(--line)}
 .field i{position:absolute;inset:0 auto 0 0;background:var(--mark);border-right:3px solid var(--ink)}
 .why{grid-column:1 / -1}
+.props{grid-column:1 / -1;margin-top:6px}
+.props summary{cursor:pointer;color:var(--slate);font-size:14px;min-height:32px;padding:4px 0}
+.props ul{list-style:none;margin:4px 0 0;padding:0;font-size:14px}
+.props li{padding:6px 0;border-top:1px solid var(--line)}
+.props b{font-weight:500}
 .note-box{grid-column:1 / -1;font-size:14px;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;padding:10px 12px;margin-top:6px;white-space:pre-wrap}
 .status{color:var(--slate);padding:24px 0}
@@ -109,7 +114,7 @@ h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
   </div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. The percentage comes from simulating thousands of games. Football is high-variance, so treat it as odds, not a promise.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. The percentages come from simulating thousands of games, including the projected stat lines. Football is high-variance, so treat it as odds, not a promise.</p>
 </main>
 
 <script>
@@ -141,6 +146,21 @@ function playerRow(p){
   r.append(el("div", "meta", `${p.position}, ${p.team} vs ${p.opponent_team}${range}`));
   const f = el("div", "field"); const bar = el("i"); bar.style.width = Math.min(pct, 100) + "%";
   f.append(bar); r.append(f);
+  if (p.props && p.props.length){
+    const d = el("details", "props");
+    d.append(el("summary", "", "Projected stats"));
+    const ul = el("ul");
+    for (const s of p.props){
+      const li = el("li");
+      li.append(el("b", "", s.label));
+      const show = p => p > 0.95 ? "95%+" : p < 0.05 ? "under 5%" : Math.round(p * 100) + "%";
+      const chances = s.lines.map(l => `${l.line}+ ${show(l.p)}`).join(", ");
+      li.append(document.createTextNode(
+        (s.median == null ? ": " : `, typically ${Math.round(s.median)}: `) + chances));
+      ul.append(li);
+    }
+    d.append(ul); r.append(d);
+  }
   if (AI){
     const b = el("button", "link why", "Latest news");
     b.onclick = async () => {
