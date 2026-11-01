@@ -41,6 +41,85 @@ def matchup_factor(opp_allowed, pos_avg):
     return float(np.clip((opp_allowed / pos_avg) ** 0.5, 0.85, 1.15))
 
 
+# ---- Projected stat lines ("props") ------------------------------------
+# (stat column, label, thresholds to report). "td" = rushing + receiving TDs.
+PROPS = {
+    "QB": [("passing_yards", "Passing yards", [225, 275, 325]),
+           ("passing_tds", "Passing TDs", [1, 2, 3]),
+           ("rushing_yards", "Rushing yards", [20, 40])],
+    "RB": [("rushing_yards", "Rushing yards", [50, 75, 100]),
+           ("receiving_yards", "Receiving yards", [20, 40, 60]),
+           ("receptions", "Receptions", [3, 5]),
+           ("td", "Touchdown", [1])],
+    "WR": [("receiving_yards", "Receiving yards", [50, 75, 100]),
+           ("receptions", "Receptions", [4, 6, 8]),
+           ("td", "Touchdown", [1])],
+    "TE": [("receiving_yards", "Receiving yards", [30, 50, 70]),
+           ("receptions", "Receptions", [3, 5, 7]),
+           ("td", "Touchdown", [1])],
+}
+COUNT_STATS = {"td", "passing_tds"}   # modeled as Poisson, not resampled
+RATE_BLEND = 0.7                      # weight on the player's own TD rate
+STAT_COLS = ["passing_yards", "passing_tds", "rushing_yards", "rushing_tds",
+             "receiving_yards", "receiving_tds", "receptions"]
+
+
+def add_td_col(df):
+    df = df.copy()
+    df["td"] = df["rushing_tds"].fillna(0) + df["receiving_tds"].fillna(0)
+    return df
+
+
+def _poisson_at_least(k, lam):
+    """P(X >= k) for a Poisson with mean lam."""
+    term, cdf = np.exp(-lam), 0.0
+    for i in range(k):
+        cdf += term
+        term *= lam / (i + 1)
+    return 1.0 - cdf
+
+
+def project_props(g, pos, factor, play, rate_avg, n=4000, rng=None):
+    """g: the player's last few games (oldest first) with stat columns.
+    Returns [{label, median, lines:[{line, p}]}]; p includes the chance he
+    doesn't play, median is for a game he plays."""
+    rng = rng or np.random.default_rng(0)
+    if pos not in PROPS or len(g) < 3 or play <= 0:
+        return []
+    w = DECAY ** np.arange(len(g))[::-1]
+    w /= w.sum()
+    idx = rng.choice(len(g), size=n, p=w)             # same games for every stat
+    mult = rng.normal(1.0, NOISE, n) * factor
+    plays = rng.random(n) < play
+    out = []
+    for stat, label, lines in PROPS[pos]:
+        col = g[stat].fillna(0).to_numpy(dtype=float)
+        if stat in COUNT_STATS:
+            own = float((col * w).sum())
+            lam = (RATE_BLEND * own + (1 - RATE_BLEND) * rate_avg.get((pos, stat), own)) * factor
+            out.append({"label": label, "median": None, "lines": [
+                {"line": k, "p": round(play * _poisson_at_least(k, lam), 3)}
+                for k in lines]})
+            continue
+        vals = col[idx] * mult
+        if stat == "receptions":
+            vals = np.round(vals)
+        vals = np.where(plays, np.maximum(vals, 0), 0.0)
+        active = vals[plays]
+        out.append({"label": label,
+                    "median": round(float(np.median(active)), 1) if len(active) else None,
+                    "lines": [{"line": k, "p": round(float((vals >= k).mean()), 3)}
+                              for k in lines]})
+    return out
+
+
+def td_rate_avg(hist_df):
+    """League-average TDs per game by position (the prior for TD props)."""
+    d = add_td_col(hist_df)
+    return {(p, s): float(d.loc[d["position"] == p, s].mean())
+            for p in PROPS for s in COUNT_STATS if s in d}
+
+
 def injury_report(season, week):
     """gsis_id -> (status, injury) for players on the official report."""
     try:
@@ -60,6 +139,9 @@ def enrich(preds, hist_df, season, week, blend=0.5):
     recent = (hist_df.groupby("player_id")["fantasy_points_ppr"]
               .apply(lambda s: s.tail(HIST_N).tolist()).to_dict())
     pos_avg = preds.groupby("position")["opp_pts_allowed_L6"].mean().to_dict()
+    tail = add_td_col(hist_df).groupby("player_id").tail(HIST_N)
+    games = {pid: g for pid, g in tail.groupby("player_id")}
+    rate_avg = td_rate_avg(hist_df)
     rows = []
     for r in preds.itertuples():
         status, injury = inj.get(r.player_id, (None, None))
@@ -70,10 +152,13 @@ def enrich(preds, hist_df, season, week, blend=0.5):
             rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
         p_model = r.big_game_prob * play
         final = p_model if np.isnan(p_sim) else blend * p_model + (1 - blend) * p_sim
-        rows.append((p_sim, p10, p50, p90, status, injury, play, final))
+        props = (project_props(games[r.player_id], r.position, f, play, rate_avg,
+                               rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
+                 if r.player_id in games else [])
+        rows.append((p_sim, p10, p50, p90, status, injury, play, final, props))
     out = preds.copy()
     out[["p_sim", "floor", "median", "ceiling", "injury_status",
-         "injury", "play_prob", "final_prob"]] = pd.DataFrame(rows, index=out.index)
+         "injury", "play_prob", "final_prob", "props"]] = pd.DataFrame(rows, index=out.index)
     return out.sort_values("final_prob", ascending=False).reset_index(drop=True)
 
 
@@ -105,5 +190,36 @@ def backtest(seasons, blends=(0, 0.25, 0.5, 0.75, 1.0)):
               f"AUC {roc_auc_score(te['big_game'], p):.3f}  top-5% hit rate {top:.1%}")
 
 
+def backtest_props(seasons):
+    """Calibration check: when we say X% to reach a line, how often did it
+    happen in the last season? (No injuries; players assumed to play.)"""
+    df = model._mark_home(model.load_stats(seasons), seasons)
+    df = add_td_col(model.build_features(df)).sort_values(["player_id", "season", "week"])
+    test_season = max(seasons)
+    train = df[df["season"] < test_season]
+    avg = train.groupby("position")["opp_pts_allowed_L6"].mean().to_dict()
+    rate_avg = td_rate_avg(train)
+    rec = []
+    for pid, g in df.groupby("player_id"):
+        g = g.reset_index(drop=True)
+        for i in range(3, len(g)):
+            row = g.iloc[i]
+            if row["season"] != test_season:
+                continue
+            f = matchup_factor(row["opp_pts_allowed_L6"], avg.get(row["position"]))
+            props = project_props(g.iloc[max(0, i - HIST_N):i], row["position"], f, 1.0,
+                                  rate_avg, rng=np.random.default_rng(i))
+            for p in props:
+                stat = next(x[0] for x in PROPS[row["position"]] if x[1] == p["label"])
+                for ln in p["lines"]:
+                    rec.append((row["position"], p["label"], ln["line"], ln["p"],
+                                float(row[stat] >= ln["line"])))
+    r = pd.DataFrame(rec, columns=["pos", "stat", "line", "pred", "hit"])
+    t = r.groupby(["pos", "stat", "line"]).agg(n=("hit", "size"),
+        predicted=("pred", "mean"), actual=("hit", "mean")).round(3)
+    print(t.to_string())
+
+
 if __name__ == "__main__":
-    backtest([2022, 2023, 2024])
+    import sys
+    backtest_props([2022, 2023, 2024]) if "props" in sys.argv else backtest([2022, 2023, 2024])
