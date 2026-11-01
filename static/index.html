@@ -4,51 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Big Game: who's likely to pop this week</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
   --ink:#1b2a3a; --chalk:#f3f5f0; --panel:#ffffff; --line:#d9dfd5;
-  --slate:#5d6b78; --mark:#e0b72d; --hit:#2f7d4f; --err:#b3402f;
+  --slate:#5d6b78; --mark:#e0b72d; --hit:#2f7d4f; --err:#b3402f; --warn:#9a6a00;
   --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 @media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --ink:#e8edf2; --chalk:#101a24; --panel:#18242f; --line:#2a3947;
-    --slate:#93a1ae; --mark:#e8c547; --hit:#5fb882; --err:#e8806f;
-  }
+  :root{ --ink:#e8edf2; --chalk:#101a24; --panel:#18242f; --line:#2a3947;
+    --slate:#93a1ae; --mark:#e8c547; --hit:#5fb882; --err:#e8806f; --warn:#e8c547; }
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--chalk);color:var(--ink);font:400 16px/1.45 var(--body);
   padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
 main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
-h1{font:700 44px/1 var(--display);margin:8px 0 4px;letter-spacing:.2px}
+.brand{display:flex;align-items:center;gap:12px;margin:8px 0 4px}
+.brand img{width:48px;height:48px;border-radius:12px}
+h1{font:700 44px/1 var(--display);margin:0;letter-spacing:.2px}
 .sub{color:var(--slate);margin:0 0 20px}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 input,select,button{font:500 16px var(--body);color:var(--ink);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px}
-input[type=text]{flex:1 1 180px}
+input[type=text],input[type=password]{flex:1 1 200px}
 input[type=number]{width:84px}
 button{cursor:pointer}
 button.primary{background:var(--ink);color:var(--chalk);border-color:var(--ink)}
+button.link{border:0;background:none;color:var(--slate);padding:4px 0;min-height:32px;
+  text-decoration:underline;font-size:14px}
 :focus-visible{outline:3px solid var(--mark);outline-offset:2px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:16px 0 12px}
 .tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;
   padding:10px 14px;color:var(--slate)}
 .tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--mark)}
-h2{font:600 24px/1.1 var(--display);margin:24px 0 8px}
+.platform{display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.platform.on{display:flex}
+.platform details{flex:1 1 100%;color:var(--slate);font-size:14px}
+.platform details input{width:100%;margin-top:8px}
+h2{font:600 26px/1.1 var(--display);margin:28px 0 4px}
+h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
 .row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:end;
   padding:12px 0;border-bottom:1px solid var(--line)}
 .who{font-weight:500}
+.tag{font-size:13px;font-weight:500;margin-left:8px;color:var(--warn)}
+.tag.out{color:var(--err)}
 .meta{color:var(--slate);font-size:14px;grid-column:1}
 .pct{font:700 32px/1 var(--display);grid-row:1 / span 2;grid-column:2;text-align:right}
 .field{grid-column:1 / -1;height:10px;margin-top:8px;border-radius:2px;position:relative;
   background:repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 10%);
   border:1px solid var(--line)}
 .field i{position:absolute;inset:0 auto 0 0;background:var(--mark);border-right:3px solid var(--ink)}
+.why{grid-column:1 / -1}
+.note-box{grid-column:1 / -1;font-size:14px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:10px 12px;margin-top:6px;white-space:pre-wrap}
 .status{color:var(--slate);padding:24px 0}
 .status.err{color:var(--err)}
 .note{color:var(--slate);font-size:14px;margin-top:28px}
@@ -56,11 +69,10 @@ h2{font:600 24px/1.1 var(--display);margin:24px 0 8px}
 </head>
 <body>
 <main>
-  <h1>Big Game</h1>
-  <p class="sub">Chance each player has a big fantasy game this week, based on recent usage and the defense they face.</p>
+  <div class="brand"><img src="/static/logo.svg" alt=""><h1>Big Game</h1></div>
+  <p class="sub">Simulated odds that each player has a big fantasy game this week, using recent form, the defense they face, and the injury report.</p>
 
   <div class="controls">
-    <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
     <input id="season" type="number" aria-label="Season">
     <input id="week" type="number" min="1" max="18" aria-label="Week">
     <button class="primary" id="go">Show picks</button>
@@ -71,14 +83,39 @@ h2{font:600 24px/1.1 var(--display);margin:24px 0 8px}
     <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
   </div>
 
+  <div id="mine-controls">
+    <div class="controls">
+      <select id="platform" aria-label="Fantasy site">
+        <option value="sleeper">Sleeper</option>
+        <option value="espn">ESPN</option>
+        <option value="yahoo">Yahoo</option>
+      </select>
+    </div>
+    <div class="platform on" id="p-sleeper">
+      <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
+    </div>
+    <div class="platform" id="p-espn">
+      <input id="espn-url" type="text" placeholder="Paste your ESPN team page link" aria-label="ESPN team page link">
+      <details>
+        <summary>Private league? Add your ESPN cookies</summary>
+        <input id="espn-s2" type="password" placeholder="espn_s2 cookie" aria-label="espn_s2 cookie">
+        <input id="espn-swid" type="password" placeholder="SWID cookie" aria-label="SWID cookie">
+      </details>
+    </div>
+    <div class="platform" id="p-yahoo">
+      <button class="primary" id="yahoo-connect">Connect Yahoo</button>
+      <span id="yahoo-msg" class="sub"></span>
+    </div>
+  </div>
+
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Football is high-variance, so treat these as odds, not promises.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. The percentage comes from simulating thousands of games. Football is high-variance, so treat it as odds, not a promise.</p>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
 const out = $("out");
-let tab = "mine";
+let tab = "mine", AI = false, YAHOO = false;
 
 function el(tag, cls, text){
   const n = document.createElement(tag);
@@ -87,63 +124,122 @@ function el(tag, cls, text){
   return n;
 }
 function status(msg, err){ out.replaceChildren(el("p", "status" + (err ? " err" : ""), msg)); }
+const ctx = () => ({season: $("season").value, week: $("week").value});
 
 function playerRow(p){
   const r = el("div", "row");
-  r.append(el("div", "who", p.player_display_name));
-  const pct = Math.round(p.big_game_prob * 100);
+  const who = el("div", "who", p.player_display_name);
+  if (p.injury_status){
+    who.append(el("span", "tag" + (p.injury_status === "Out" ? " out" : ""),
+      p.injury_status + (p.injury ? ` (${p.injury.toLowerCase()})` : "")));
+  }
+  r.append(who);
+  const pct = Math.round(p.final_prob * 100);
   r.append(el("div", "pct", pct + "%"));
-  const l3 = p.fantasy_points_ppr_L3 == null ? "" : `, ${p.fantasy_points_ppr_L3.toFixed(1)} pts a game lately`;
-  r.append(el("div", "meta", `${p.position}, ${p.team} vs ${p.opponent_team}${l3}`));
+  const range = p.floor == null ? "" :
+    `, likely ${Math.round(p.floor)} to ${Math.round(p.ceiling)} pts`;
+  r.append(el("div", "meta", `${p.position}, ${p.team} vs ${p.opponent_team}${range}`));
   const f = el("div", "field"); const bar = el("i"); bar.style.width = Math.min(pct, 100) + "%";
   f.append(bar); r.append(f);
+  if (AI){
+    const b = el("button", "link why", "Latest news");
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Checking the news…";
+      const q = new URLSearchParams({name: p.player_display_name, position: p.position,
+        team: p.team, opponent: p.opponent_team, status: p.injury_status || "", ...ctx()});
+      try {
+        const d = await api("/api/insight?" + q);
+        b.replaceWith(el("div", "note-box", d.text));
+      } catch (e){ b.disabled = false; b.textContent = e.message; }
+    };
+    r.append(b);
+  }
   return r;
 }
 
-async function api(path){
-  const r = await fetch(path);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Something went wrong.");
+async function api(path, body){
+  const r = await fetch(path, body ? {method: "POST",
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
+  if (!r.ok){
+    const d = await r.json().catch(() => ({}));
+    throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong.");
+  }
   return r.json();
 }
 
+function leagueBody(){
+  const p = $("platform").value;
+  const b = {platform: p, season: +$("season").value, week: +$("week").value};
+  if (p === "sleeper") b.username = $("user").value.trim();
+  if (p === "espn"){
+    b.url = $("espn-url").value.trim();
+    b.espn_s2 = $("espn-s2").value; b.swid = $("espn-swid").value;
+  }
+  return b;
+}
+
 async function load(){
-  const season = $("season").value, week = $("week").value, user = $("user").value.trim();
-  localStorage.setItem("bg_user", user);
+  const {season, week} = ctx();
   try {
     if (tab === "top"){
-      status("Building this week's picks…");
+      status("Running simulations…");
       const rows = await api(`/api/top?season=${season}&week=${week}`);
       out.replaceChildren(...rows.map(playerRow));
-    } else {
-      if (!user) return status("Enter your Sleeper username, then tap Show picks.");
-      status("Loading your leagues…");
-      const leagues = await api(`/api/roster?username=${encodeURIComponent(user)}&season=${season}&week=${week}`);
-      if (!leagues.length) return status("No leagues found for that season.");
-      out.replaceChildren(...leagues.flatMap(lg => [
-        el("h2", "", lg.league),
-        ...(lg.players.length ? lg.players.map(playerRow)
-            : [el("p", "status", "None of your players are playing this week.")])
-      ]));
+      return;
     }
+    const b = leagueBody();
+    if (b.platform === "sleeper" && !b.username) return status("Enter your Sleeper username, then tap Show picks.");
+    if (b.platform === "espn" && !b.url) return status("Paste your ESPN team page link, then tap Show picks.");
+    localStorage.setItem("bg_platform", b.platform);
+    if (b.username) localStorage.setItem("bg_user", b.username);
+    if (b.url) localStorage.setItem("bg_espn", b.url);
+    status("Loading your leagues and running simulations…");
+    const leagues = await api("/api/leagues", b);
+    if (!leagues.length) return status("No leagues found for that season.");
+    out.replaceChildren(...leagues.flatMap(lg => [
+      el("h2", "", lg.league),
+      ...(lg.players.length ? lg.players.map(playerRow)
+          : [el("p", "status", "None of your players are playing this week.")]),
+      el("h3", "", "Free agents worth a look"),
+      ...(lg.free_agents.length ? lg.free_agents.map(playerRow)
+          : [el("p", "status", "No strong free agents found.")])
+    ]));
   } catch (e){ status(e.message, true); }
 }
 
+function showPlatform(){
+  const p = $("platform").value;
+  for (const k of ["sleeper", "espn", "yahoo"]) $("p-" + k).classList.toggle("on", k === p);
+  if (p === "yahoo" && !YAHOO) $("yahoo-msg").textContent = "Yahoo isn't set up on this site yet.";
+}
 function setTab(t){
   tab = t;
   $("tab-mine").setAttribute("aria-selected", t === "mine");
   $("tab-top").setAttribute("aria-selected", t === "top");
+  $("mine-controls").style.display = t === "mine" ? "" : "none";
   load();
 }
 $("go").onclick = load;
+$("platform").onchange = showPlatform;
 $("user").addEventListener("keydown", e => { if (e.key === "Enter") load(); });
 $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
+$("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
 (async () => {
   $("user").value = localStorage.getItem("bg_user") || "";
+  $("espn-url").value = localStorage.getItem("bg_espn") || "";
+  $("platform").value = localStorage.getItem("bg_platform") || "sleeper";
   const d = await api("/api/defaults").catch(() => ({season: 2025, week: 9}));
   $("season").value = d.season; $("week").value = d.week;
-  $("user").value ? load() : setTab("top");
+  AI = !!d.ai; YAHOO = !!d.yahoo;
+  const y = new URLSearchParams(location.search).get("yahoo");
+  if (y){ $("platform").value = "yahoo"; history.replaceState({}, "", "/"); }
+  showPlatform();
+  if (y === "failed") $("yahoo-msg").textContent = "Yahoo sign-in didn't finish. Try again.";
+  const p = $("platform").value;
+  const ready = y === "connected" || (p === "sleeper" && $("user").value) || (p === "espn" && $("espn-url").value);
+  ready ? setTab("mine") : setTab("top");
 })();
 </script>
 </body>
