@@ -6,84 +6,115 @@
 <title>Big Game Fantasy</title>
 <meta name="apple-mobile-web-app-title" content="Big Game Fantasy">
 <meta name="application-name" content="Big Game Fantasy">
-<meta name="theme-color" content="#1b2a3a">
+<meta name="theme-color" content="#1e2328">
 <link rel="manifest" href="/static/manifest.json">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
 <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --ink:#1b2a3a; --chalk:#f3f5f0; --panel:#ffffff; --line:#d9dfd5;
-  --slate:#5d6b78; --mark:#e0b72d; --hit:#2f7d4f; --err:#b3402f; --warn:#9a6a00;
-  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
-  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --paper:#fcfcfa; --ink:#1e2328; --slate:#5b6670; --line:#dcdcd4; --panel:#ffffff;
+  --green:#1f7a4d; --amber:#d98e04; --amber-ink:#8a5300; --red:#c23b2b;
+  --sans:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --hand:Caveat,"Bradley Hand","Segoe Script",cursive;
+  --grain:.05;
 }
 @media (prefers-color-scheme:dark){
-  :root{ --ink:#e8edf2; --chalk:#101a24; --panel:#18242f; --line:#2a3947;
-    --slate:#93a1ae; --mark:#e8c547; --hit:#5fb882; --err:#e8806f; --warn:#e8c547; }
+  :root{ --paper:#15191d; --ink:#eceff1; --slate:#9aa5af; --line:#2b3238; --panel:#1c2126;
+    --green:#4cc08a; --amber:#f0b429; --amber-ink:#f0b429; --red:#ff7b6b; --grain:.07; }
 }
 *{box-sizing:border-box}
 html,body{margin:0}
-body{background:var(--chalk);color:var(--ink);font:400 16px/1.45 var(--body);
-  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
-main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
-.brand{display:flex;align-items:center;gap:12px;margin:8px 0 4px}
-.brand img{width:48px;height:48px;border-radius:12px}
-h1{font:700 44px/1 var(--display);margin:0;letter-spacing:.2px}
-.sub{color:var(--slate);margin:0 0 20px}
+body{background:var(--paper);color:var(--ink);font:400 16px/1.45 var(--sans);
+  font-feature-settings:"tnum" 1;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+/* paper grain: a faint speckle so the page doesn't feel machine-flat */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--grain);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+@media (prefers-color-scheme:dark){ body::before{filter:invert(1)} }
+main{position:relative;z-index:1;max-width:560px;margin:0 auto;padding:20px 16px 56px}
+
+.brand{display:flex;align-items:center;gap:12px;margin:6px 0 2px}
+.brand img{width:44px;height:44px;border-radius:11px}
+h1{font:700 30px/1.05 var(--sans);margin:0;letter-spacing:-.4px}
+.sub{color:var(--slate);margin:6px 0 18px;max-width:46ch}
+
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}
 .pick{display:flex;flex-direction:column;gap:4px}
 .pick label{font-size:14px;font-weight:500;color:var(--slate)}
-.weekline{font:600 20px/1.1 var(--display);color:var(--slate);margin:4px 0 0}
-input,select,button{font:500 16px var(--body);color:var(--ink);background:var(--panel);
-  border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px}
+input,select,button{font:500 16px var(--sans);color:var(--ink);background:var(--panel);
+  border:1.5px solid var(--ink);border-radius:6px 8px 7px 9px / 8px 6px 9px 7px;padding:10px 12px;min-height:44px}
 input[type=text],input[type=password]{flex:1 1 200px}
 input[type=number]{width:96px}
 button{cursor:pointer}
-button.primary{background:var(--ink);color:var(--chalk);border-color:var(--ink)}
-button.link{border:0;background:none;color:var(--slate);padding:4px 0;min-height:32px;
-  text-decoration:underline;font-size:14px}
-:focus-visible{outline:3px solid var(--mark);outline-offset:2px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:16px 0 12px}
-.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;
-  padding:10px 14px;color:var(--slate)}
-.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--mark)}
+button.primary{background:var(--ink);color:var(--paper)}
+button.link{border:0;background:none;color:var(--slate);padding:4px 0;min-height:36px;
+  text-decoration:underline;font-size:14px;text-align:left}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+
+.tabs{display:flex;gap:18px;margin:16px 0 14px;border-bottom:1.5px solid var(--line)}
+.tabs button{border:0;border-radius:0;background:none;padding:10px 2px;margin-bottom:-1.5px;
+  color:var(--slate);border-bottom:3px solid transparent;font-weight:600}
+.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--green)}
+
 .platform{display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .platform.on{display:flex}
 .platform details{flex:1 1 100%;color:var(--slate);font-size:14px}
 .platform details input{width:100%;margin-top:8px}
-h2{font:600 26px/1.1 var(--display);margin:28px 0 4px}
-h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
-.row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:end;
-  padding:12px 0;border-bottom:1px solid var(--line)}
-.who{font-weight:500}
-.tag{font-size:13px;font-weight:500;margin-left:8px;color:var(--warn)}
-.tag.out{color:var(--err)}
-.meta{color:var(--slate);font-size:14px;grid-column:1}
-.pct{font:700 32px/1 var(--display);grid-row:1 / span 2;grid-column:2;text-align:right}
-.field{grid-column:1 / -1;height:10px;margin-top:8px;border-radius:2px;position:relative;
-  background:repeating-linear-gradient(90deg,var(--line) 0 1px,transparent 1px 10%);
-  border:1px solid var(--line)}
-.field i{position:absolute;inset:0 auto 0 0;background:var(--mark);border-right:3px solid var(--ink)}
-.why{grid-column:1 / -1}
-.props{grid-column:1 / -1;margin-top:6px}
-.props summary{cursor:pointer;color:var(--slate);font-size:14px;min-height:32px;padding:4px 0}
-.props ul{list-style:none;margin:4px 0 0;padding:0;font-size:14px}
-.props li{padding:6px 0;border-top:1px solid var(--line)}
-.props b{font-weight:500}
-.note-box{grid-column:1 / -1;font-size:14px;background:var(--panel);border:1px solid var(--line);
-  border-radius:8px;padding:10px 12px;margin-top:6px;white-space:pre-wrap}
+
+/* the week, stamped on the sheet at a slight angle */
+.stamp{display:block;width:fit-content;transform:rotate(-1.4deg);padding:5px 12px;margin:4px 0 6px;
+  font-weight:600;font-size:15px;border:1.5px solid var(--ink);
+  border-radius:3px 6px 4px 7px / 6px 3px 7px 4px}
+.leaguebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 0}
+.leaguebar select{max-width:100%}
+
+h2,h3{display:block;margin:26px 0 6px;font-weight:700;letter-spacing:-.2px}
+.ul{position:relative;display:inline-block}
+h2{font-size:24px;line-height:1.15}
+h3{font-size:21px;line-height:1.15}
+.ul svg{position:absolute;left:0;bottom:-7px;width:100%;height:8px;overflow:visible}
+.ul svg path{fill:none;stroke:var(--ink);stroke-width:1.7;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.hand{font:600 24px/1 var(--hand);color:var(--green);display:inline-block;transform:rotate(-3deg);margin-left:12px}
+.groupnote{color:var(--slate);font-size:14px;margin:10px 0 0}
+
+.row{display:grid;grid-template-columns:1fr auto;column-gap:14px;padding:14px 0;
+  border-bottom:1px solid var(--line)}
+.who{grid-column:1;align-self:end;font-weight:600;font-size:17px}
+.meta{grid-column:1;align-self:start;color:var(--slate);font-size:14px}
+.meta .inj{color:var(--amber-ink);font-weight:500}
+.meta .inj.out{color:var(--red)}
+.right{grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.pct{font-size:30px;font-weight:700;line-height:1}
+.rank{display:inline-block;min-width:1.6em;color:var(--slate);font-weight:600}
+.tag{position:relative;display:inline-grid;place-items:center;width:76px;height:30px;
+  transform:rotate(var(--rot,0deg))}
+.tag svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:none;
+  stroke-width:2.2;stroke-linecap:round}
+.tag.strong svg{stroke:var(--green)}
+.tag.solid svg{stroke:var(--amber)}
+.tag.risky svg,.tag.out svg{stroke:var(--red)}
+.tag span{position:relative;font-weight:600;font-size:13px}
+
+details.more{grid-column:1 / -1;margin-top:6px}
+details.more summary{cursor:pointer;color:var(--slate);font-size:14px;min-height:36px;padding:6px 0}
+details.more .range{font-size:14px;margin:2px 0 6px}
+details.more ul{list-style:none;margin:0;padding:0;font-size:14px}
+details.more li{padding:7px 0;border-top:1px solid var(--line)}
+details.more b{font-weight:600}
+.note-box{font-size:14px;background:var(--panel);border:1.5px solid var(--line);
+  border-radius:6px 9px 7px 8px;padding:10px 12px;margin-top:8px;white-space:pre-wrap}
+
 .status{color:var(--slate);padding:24px 0}
-.status.err{color:var(--err)}
-.note{color:var(--slate);font-size:14px;margin-top:28px}
+.status.err{color:var(--red)}
+.note{color:var(--slate);font-size:14px;margin-top:30px;max-width:52ch}
 </style>
 </head>
 <body>
 <main>
   <div class="brand"><img src="/static/logo.svg" alt=""><h1>Big Game Fantasy</h1></div>
-  <p class="sub">Simulated odds that each player has a big fantasy game this week, using recent form, the defense they face, and the injury report.</p>
+  <p class="sub">Your lineup, with the odds each player has a big game this week.</p>
 
   <div class="controls">
     <div class="pick"><label for="season">Season (year)</label>
@@ -100,11 +131,12 @@ h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
 
   <div id="mine-controls">
     <div class="controls">
-      <select id="platform" aria-label="Fantasy site">
-        <option value="sleeper">Sleeper</option>
-        <option value="espn">ESPN</option>
-        <option value="yahoo">Yahoo</option>
-      </select>
+      <div class="pick"><label for="platform">Fantasy site</label>
+        <select id="platform">
+          <option value="sleeper">Sleeper</option>
+          <option value="espn">ESPN</option>
+          <option value="yahoo">Yahoo</option>
+        </select></div>
     </div>
     <div class="platform on" id="p-sleeper">
       <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
@@ -124,13 +156,15 @@ h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
   </div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. The percentages come from simulating thousands of games, including the projected stat lines. Football is high-variance, so treat it as odds, not a promise.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. Football is high-variance, so treat all of this as odds, not a promise.</p>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
 const out = $("out");
+const NS = "http://www.w3.org/2000/svg";
 let tab = "mine", AI = false, YAHOO = false;
+let LEAGUES = [], LEAGUE_IDX = 0;
 
 function el(tag, cls, text){
   const n = document.createElement(tag);
@@ -138,52 +172,114 @@ function el(tag, cls, text){
   if (text !== undefined) n.textContent = text;
   return n;
 }
-const weekLine = () => el("p", "weekline", `Week ${$("week").value}, ${$("season").value} season`);
 function status(msg, err){ out.replaceChildren(el("p", "status" + (err ? " err" : ""), msg)); }
 const ctx = () => ({season: $("season").value, week: $("week").value});
 
-function playerRow(p){
+/* ---- hand-drawn touches: seeded, so each name always draws the same way ---- */
+function hashStr(s){ let h = 2166136261; for (const c of s){ h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed){ let s = seed >>> 0; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; }
+function smooth(P){
+  let d = `M${((P[0][0] + P[1][0]) / 2).toFixed(1)} ${((P[0][1] + P[1][1]) / 2).toFixed(1)}`;
+  for (let i = 1; i < P.length - 1; i++){
+    const a = P[i], b = P[i + 1];
+    d += ` Q${a[0].toFixed(1)} ${a[1].toFixed(1)} ${((a[0] + b[0]) / 2).toFixed(1)} ${((a[1] + b[1]) / 2).toFixed(1)}`;
+  }
+  return d;
+}
+function ovalPath(w, h, seed){            // a pen circle that doesn't quite close
+  const r = rng(seed), cx = w / 2, cy = h / 2, rx = w / 2 - 4, ry = h / 2 - 4, n = 16;
+  const start = r() * Math.PI * 2, sweep = Math.PI * 2 * (1.04 + r() * 0.1), P = [];
+  for (let i = 0; i <= n; i++){
+    const t = start + sweep * i / n, k = 1 + (r() - .5) * .09 - (i / n) * .07;
+    P.push([cx + Math.cos(t) * rx * k, cy + Math.sin(t) * ry * k]);
+  }
+  return smooth(P);
+}
+function underlinePath(seed){             // a pencil line drawn in one stroke
+  const r = rng(seed), P = [];
+  for (let i = 0; i <= 6; i++) P.push([100 * i / 6, 4 + (r() - .5) * 3]);
+  return smooth(P);
+}
+function svgEl(w, h, d, box){
+  const s = document.createElementNS(NS, "svg");
+  s.setAttribute("viewBox", box || `0 0 ${w} ${h}`);
+  s.setAttribute("aria-hidden", "true");
+  if (!box) s.setAttribute("preserveAspectRatio", "none");
+  const p = document.createElementNS(NS, "path"); p.setAttribute("d", d); s.append(p);
+  return s;
+}
+function heading(tag, text){
+  const h = el(tag), u = el("span", "ul", text);
+  const s = svgEl(100, 8, underlinePath(hashStr(text)), "0 0 100 8");
+  s.setAttribute("preserveAspectRatio", "none");
+  u.append(s); h.append(u);
+  return h;
+}
+function tagFor(p){
+  if (p.injury_status === "Out") return ["Out", "out"];
+  if (p.final_prob >= 0.40) return ["Strong", "strong"];
+  if (p.final_prob >= 0.20) return ["Solid", "solid"];
+  return ["Risky", "risky"];
+}
+function tagEl(p){
+  const [label, kind] = tagFor(p), seed = hashStr(p.player_display_name);
+  const t = el("span", "tag " + kind);
+  t.style.setProperty("--rot", (((seed % 5) - 2) * 0.9) + "deg");
+  t.append(svgEl(76, 30, ovalPath(76, 30, seed)), el("span", "", label));
+  return t;
+}
+
+/* ---- rows ---- */
+function playerRow(p, rank){
   const r = el("div", "row");
-  const who = el("div", "who", p.player_display_name);
+  const who = el("div", "who");
+  if (rank) who.append(el("span", "rank", rank + "."));
+  who.append(document.createTextNode(p.player_display_name));
+  r.append(who);
+
+  const meta = el("div", "meta", rank ? `${p.position}, ${p.team} vs ${p.opponent_team}` : `${p.team} vs ${p.opponent_team}`);
   if (p.injury_status){
-    who.append(el("span", "tag" + (p.injury_status === "Out" ? " out" : ""),
+    meta.append(document.createTextNode(", "));
+    meta.append(el("span", "inj" + (p.injury_status === "Out" ? " out" : ""),
       p.injury_status + (p.injury ? ` (${p.injury.toLowerCase()})` : "")));
   }
-  r.append(who);
-  const pct = Math.round(p.final_prob * 100);
-  r.append(el("div", "pct", pct + "%"));
-  const range = p.floor == null ? "" :
-    `, likely ${Math.round(p.floor)} to ${Math.round(p.ceiling)} pts`;
-  r.append(el("div", "meta", `${p.position}, ${p.team} vs ${p.opponent_team}${range}`));
-  const f = el("div", "field"); const bar = el("i"); bar.style.width = Math.min(pct, 100) + "%";
-  f.append(bar); r.append(f);
-  if (p.props && p.props.length){
-    const d = el("details", "props");
-    d.append(el("summary", "", "Projected stats"));
-    const ul = el("ul");
-    for (const s of p.props){
-      const li = el("li");
-      li.append(el("b", "", s.label));
-      const show = p => p > 0.95 ? "95%+" : p < 0.05 ? "under 5%" : Math.round(p * 100) + "%";
-      const chances = s.lines.map(l => `${l.line}+ ${show(l.p)}`).join(", ");
-      li.append(document.createTextNode(
-        (s.median == null ? ": " : `, typically ${Math.round(s.median)}: `) + chances));
-      ul.append(li);
+  r.append(meta);
+
+  const right = el("div", "right");
+  right.append(el("div", "pct", Math.round(p.final_prob * 100) + "%"), tagEl(p));
+  r.append(right);
+
+  const hasProps = p.props && p.props.length;
+  if (hasProps || p.floor != null || AI){
+    const d = el("details", "more");
+    d.append(el("summary", "", "Range and projected stats"));
+    if (p.floor != null)
+      d.append(el("p", "range", `Likely range: ${Math.round(p.floor)} to ${Math.round(p.ceiling)} fantasy points`));
+    if (hasProps){
+      const ul = el("ul");
+      const show = q => q > 0.95 ? "95%+" : q < 0.05 ? "under 5%" : Math.round(q * 100) + "%";
+      for (const s of p.props){
+        const li = el("li");
+        li.append(el("b", "", s.label));
+        li.append(document.createTextNode(
+          (s.median == null ? ": " : `, typically ${Math.round(s.median)}: `) +
+          s.lines.map(l => `${l.line}+ ${show(l.p)}`).join(", ")));
+        ul.append(li);
+      }
+      d.append(ul);
     }
-    d.append(ul); r.append(d);
-  }
-  if (AI){
-    const b = el("button", "link why", "Latest news");
-    b.onclick = async () => {
-      b.disabled = true; b.textContent = "Checking the news…";
-      const q = new URLSearchParams({name: p.player_display_name, position: p.position,
-        team: p.team, opponent: p.opponent_team, status: p.injury_status || "", ...ctx()});
-      try {
-        const d = await api("/api/insight?" + q);
-        b.replaceWith(el("div", "note-box", d.text));
-      } catch (e){ b.disabled = false; b.textContent = e.message; }
-    };
-    r.append(b);
+    if (AI){
+      const b = el("button", "link", "Latest news");
+      b.onclick = async () => {
+        b.disabled = true; b.textContent = "Checking the news…";
+        const q = new URLSearchParams({name: p.player_display_name, position: p.position,
+          team: p.team, opponent: p.opponent_team, status: p.injury_status || "", ...ctx()});
+        try { const x = await api("/api/insight?" + q); b.replaceWith(el("div", "note-box", x.text)); }
+        catch (e){ b.disabled = false; b.textContent = e.message; }
+      };
+      d.append(b);
+    }
+    r.append(d);
   }
   return r;
 }
@@ -196,6 +292,45 @@ async function api(path, body){
     throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong.");
   }
   return r.json();
+}
+
+const stamp = () => el("div", "stamp", `Week ${$("week").value}, ${$("season").value} season`);
+
+/* ---- lineup sheet: your players grouped by position, then the waiver wire ---- */
+const GROUPS = [["QB", "Quarterback"], ["RB", "Running backs"], ["WR", "Wide receivers"], ["TE", "Tight end"]];
+
+function lineup(lg){
+  const f = document.createDocumentFragment();
+  if (!lg.players.length) f.append(el("p", "status", "None of your players are playing this week."));
+  for (const [pos, label] of GROUPS){
+    const list = lg.players.filter(p => p.position === pos);
+    if (!list.length) continue;
+    f.append(heading("h2", label));
+    list.forEach(p => f.append(playerRow(p)));
+  }
+  const w = heading("h3", "Waiver wire");
+  w.append(el("span", "hand", "worth a look"));
+  f.append(w);
+  f.append(el("p", "groupnote", "Best available players in your league, by odds."));
+  if (lg.free_agents.length) lg.free_agents.forEach(p => f.append(playerRow({...p}, null)));
+  else f.append(el("p", "status", "No strong free agents found."));
+  return f;
+}
+
+function renderLeagues(){
+  const parts = [stamp()];
+  if (LEAGUES.length > 1){
+    const bar = el("div", "leaguebar");
+    const sel = el("select"); sel.setAttribute("aria-label", "League");
+    LEAGUES.forEach((lg, i) => { const o = el("option", "", lg.league); o.value = i; sel.append(o); });
+    sel.value = LEAGUE_IDX;
+    sel.onchange = () => { LEAGUE_IDX = +sel.value; renderLeagues(); };
+    bar.append(sel); parts.push(bar);
+  } else {
+    parts.push(el("div", "groupnote", LEAGUES[0].league));
+  }
+  parts.push(lineup(LEAGUES[LEAGUE_IDX]));
+  out.replaceChildren(...parts);
 }
 
 function leagueBody(){
@@ -215,7 +350,7 @@ async function load(){
     if (tab === "top"){
       status("Running simulations…");
       const rows = await api(`/api/top?season=${season}&week=${week}`);
-      out.replaceChildren(weekLine(), ...rows.map(playerRow));
+      out.replaceChildren(stamp(), heading("h2", "Top picks"), ...rows.map((p, i) => playerRow(p, i + 1)));
       return;
     }
     const b = leagueBody();
@@ -225,16 +360,9 @@ async function load(){
     if (b.username) localStorage.setItem("bg_user", b.username);
     if (b.url) localStorage.setItem("bg_espn", b.url);
     status("Loading your leagues and running simulations…");
-    const leagues = await api("/api/leagues", b);
-    if (!leagues.length) return status("No leagues found for that season.");
-    out.replaceChildren(weekLine(), ...leagues.flatMap(lg => [
-      el("h2", "", lg.league),
-      ...(lg.players.length ? lg.players.map(playerRow)
-          : [el("p", "status", "None of your players are playing this week.")]),
-      el("h3", "", "Free agents worth a look"),
-      ...(lg.free_agents.length ? lg.free_agents.map(playerRow)
-          : [el("p", "status", "No strong free agents found.")])
-    ]));
+    LEAGUES = await api("/api/leagues", b); LEAGUE_IDX = 0;
+    if (!LEAGUES.length) return status("No leagues found for that season.");
+    renderLeagues();
   } catch (e){ status(e.message, true); }
 }
 
@@ -258,9 +386,11 @@ $("tab-top").onclick = () => setTab("top");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
 (async () => {
-  $("user").value = localStorage.getItem("bg_user") || "";
-  $("espn-url").value = localStorage.getItem("bg_espn") || "";
-  $("platform").value = localStorage.getItem("bg_platform") || "sleeper";
+  try {
+    $("user").value = localStorage.getItem("bg_user") || "";
+    $("espn-url").value = localStorage.getItem("bg_espn") || "";
+    $("platform").value = localStorage.getItem("bg_platform") || "sleeper";
+  } catch (e) {}
   const d = await api("/api/defaults").catch(() => ({season: 2025, week: 9}));
   $("season").value = d.season; $("week").value = d.week;
   AI = !!d.ai; YAHOO = !!d.yahoo;
