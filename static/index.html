@@ -7,9 +7,9 @@
 <meta name="apple-mobile-web-app-title" content="Big Game Fantasy">
 <meta name="application-name" content="Big Game Fantasy">
 <meta name="theme-color" content="#cfd4d8">
-<link rel="manifest" href="/static/manifest.json">
-<link rel="apple-touch-icon" href="/static/icon-180.png">
-<link rel="icon" type="image/png" sizes="64x64" href="/static/icon-rounded-64.png">
+<link rel="manifest" href="/static/manifest.json?v=3">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png?v=3">
+<link rel="icon" type="image/png" sizes="64x64" href="/static/icon-rounded-64.png?v=3">
 <link rel="preload" as="image" href="/static/splash-coach.webp" type="image/webp">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -67,9 +67,9 @@ button.link{border:0;box-shadow:none;background:none;color:var(--slate);padding:
 .inputrow input{flex:1 1 150px;min-width:0}
 .inputrow .submit{flex:0 0 auto}
 
-.tabs{display:flex;gap:18px;margin:16px 0 14px;border-bottom:1.5px solid var(--line)}
+.tabs{display:flex;flex-wrap:wrap;gap:0 14px;margin:16px 0 14px;border-bottom:1.5px solid var(--line)}
 .tabs button{border:0;border-radius:0;box-shadow:none;background:none;padding:10px 2px;margin-bottom:-1.5px;
-  color:var(--slate);border-bottom:3px solid transparent;font-weight:600}
+  color:var(--slate);border-bottom:3px solid transparent;font-weight:600;font-size:15px}
 .tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--blue)}
 
 .platform{display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -145,6 +145,24 @@ details.more b{font-weight:600}
 .caption{font-size:12px;color:var(--slate)}
 .tnotes{margin:10px 0 0;padding-left:18px;color:var(--slate);font-size:14px}
 .tnotes li{margin:4px 0}
+.versus{font-weight:600;margin:8px 0 0}
+.bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
+  font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
+.bigwin svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:none;stroke-width:3;stroke-linecap:round}
+.bigwin.strong svg{stroke:var(--green)}
+.bigwin.solid svg{stroke:var(--amber)}
+.bigwin.risky svg{stroke:var(--red)}
+.bigwin span{position:relative}
+.winlabel{font-size:14px;color:var(--slate);margin:0 0 8px}
+.calrow{display:grid;grid-template-columns:76px 1fr;gap:2px 10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.bars{position:relative;height:22px}
+.bar-said{position:absolute;left:0;top:0;height:9px;border:1.5px solid var(--slate);border-radius:2px;box-sizing:border-box}
+.bar-did{position:absolute;left:0;top:12px;height:9px;background:var(--blue);border-radius:2px}
+.calnote{grid-column:2;color:var(--slate);font-size:13px}
+.tierrow{display:grid;grid-template-columns:84px 1fr;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.tierrow .tag{justify-self:start}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--slate);margin:6px 0}
+.legend i{display:inline-block;width:18px;height:8px;vertical-align:middle;margin-right:5px;border-radius:2px}
 .status{color:var(--slate);padding:24px 0}
 .status.err{color:var(--red)}
 .note{color:var(--slate);font-size:14px;margin:30px 0 0;max-width:52ch}
@@ -208,8 +226,10 @@ details.more b{font-weight:600}
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
-    <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
+    <button role="tab" id="tab-plan" aria-selected="false">Game plan</button>
     <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
+    <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
+    <button role="tab" id="tab-record" aria-selected="false">Record</button>
   </div>
 
   <div id="mine-controls">
@@ -245,6 +265,8 @@ details.more b{font-weight:600}
   </div>
 
   <div id="trade-panel" style="display:none"></div>
+  <div id="plan-panel" style="display:none"></div>
+  <div id="record-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
   <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
@@ -611,6 +633,164 @@ async function analyzeTrade(){
   finally { btn.disabled = false; }
 }
 
+/* ---- game plan: your chance to win this week, and the swaps that raise it ---- */
+const pct0 = x => Math.round(x * 100) + "%";
+
+function buildPlanPanel(){
+  const panel = $("plan-panel");
+  panel.append(heading("h2", "Game plan"));
+  const c = el("p", "groupnote"); c.id = "plan-ctx"; panel.append(c);
+  const go = el("button", "primary", "Check this week\u2019s matchup"); go.id = "plan-go"; go.onclick = runPlan;
+  const o = el("div"); o.id = "plan-out"; o.setAttribute("aria-live", "polite");
+  panel.append(go, o);
+}
+
+function refreshPlan(){
+  const lg = curLeague(), ok = !!(lg && lg.league_id);
+  $("plan-ctx").textContent = ok
+    ? `League: ${lg.league}. We compare your lineup with this week\u2019s opponent and look for swaps that raise your chance to win.`
+    : "Game plan works with Sleeper leagues for now. Load one under My teams first.";
+  $("plan-go").style.display = ok ? "" : "none";
+}
+
+async function runPlan(){
+  const lg = curLeague(), o = $("plan-out"), {season, week} = ctx(), btn = $("plan-go");
+  btn.disabled = true;
+  o.replaceChildren(el("p", "status", "Simulating this week\u2019s matchup\u2026"));
+  try { renderPlan(await api("/api/matchup", {username: $("user").value.trim(), league_id: lg.league_id, season: +season, week: +week})); }
+  catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+  finally { btn.disabled = false; }
+}
+
+function lineRow(x){
+  const r = el("div", "row");
+  r.append(el("div", "who", x.name));
+  const meta = el("div", "meta", x.slot + (x.team ? `, ${x.team}` + (x.opp ? ` vs ${x.opp}` : "") : ""));
+  if (x.status){ meta.append(document.createTextNode(", ")); meta.append(el("span", "inj" + (x.status === "Out" ? " out" : ""), x.status)); }
+  if (x.note) meta.append(el("span", "matchup avg", x.note));
+  r.append(meta);
+  const right = el("div", "right");
+  right.append(el("div", "pct", x.expected.toFixed(1)), el("div", "caption", `likely ${Math.round(x.low)} to ${Math.round(x.high)}`));
+  r.append(right);
+  return r;
+}
+
+function renderPlan(r){
+  const kind = {favorite: "strong", underdog: "risky", "toss-up": "solid"}[r.stance];
+  const parts = [el("div", "versus", `${r.you.name} vs ${r.opponent.name}, week ${r.week}`)];
+  const big = el("div", "bigwin " + kind);
+  big.append(svgEl(176, 88, ovalPath(176, 88, hashStr(r.you.name + r.week))), el("span", "", pct0(r.win_prob)));
+  parts.push(big, el("p", "winlabel", `chance you win, ${r.stance === "toss-up" ? "a toss-up" : "you\u2019re the " + r.stance}`));
+  parts.push(el("p", "", `You\u2019re projected for ${r.you.expected} points (likely ${Math.round(r.you.low)} to ${Math.round(r.you.high)}) against ${r.opponent.expected} (likely ${Math.round(r.opponent.low)} to ${Math.round(r.opponent.high)}). ${r.advice}`));
+  if (r.warnings.length){
+    parts.push(heading("h3", "Check your lineup"));
+    const ul = el("ul", "tnotes"); r.warnings.forEach(w => ul.append(el("li", "", w))); parts.push(ul);
+  }
+  parts.push(heading("h3", "Recommended moves"));
+  if (r.moves.length){
+    r.moves.forEach(m => {
+      const row = el("div", "row");
+      row.append(el("div", "who", `Start ${m.start.name} over ${m.sit.name}`));
+      row.append(el("div", "meta", `${m.slot} slot: ${m.why}`));
+      const right = el("div", "right");
+      right.append(el("div", "pct", "+" + m.gain + "%"), el("div", "caption", "win chance"));
+      row.append(right); parts.push(row);
+    });
+    parts.push(el("p", "", `With these moves your chance goes from ${pct0(r.win_prob)} to ${pct0(r.win_prob_after)}.`));
+  } else {
+    parts.push(el("p", "status", "Your lineup looks right. We couldn\u2019t find a swap that clearly helps."));
+  }
+  parts.push(heading("h3", "Your lineup"), ...r.lineup.map(lineRow), heading("h3", "Their lineup"), ...r.opp_lineup.map(lineRow));
+  const rec = r.rec === 1 ? "full PPR" : r.rec === 0.5 ? "half PPR" : r.rec === 0 ? "standard (no reception points)" : `${r.rec} points per reception`;
+  parts.push(el("p", "note", `Win chance comes from simulating this week thousands of times for every starter, using recent form, the defense each faces, and the injury report. Scoring is adjusted for ${rec} receptions; other scoring rules are assumed standard. Kickers and defenses use typical scores. Players are treated as independent, so treat the number as a guide, not a guarantee.`));
+  $("plan-out").replaceChildren(...parts);
+}
+
+/* ---- track record: how our own calls actually did ---- */
+let recordTimer = null;
+
+function buildRecordPanel(){
+  const panel = $("record-panel");
+  panel.append(heading("h2", "Track record"));
+  panel.append(el("p", "groupnote", "How our calls did this season. Each week\u2019s picks are rebuilt using only what was known before that week, then checked against what really happened."));
+  const o = el("div"); o.id = "record-out"; o.setAttribute("aria-live", "polite"); panel.append(o);
+}
+
+function plainTag(label, kind, seedText){
+  const seed = hashStr(seedText), t = el("span", "tag " + kind);
+  t.style.setProperty("--rot", (((seed % 5) - 2) * 0.9) + "deg");
+  t.append(svgEl(76, 30, ovalPath(76, 30, seed)), el("span", "", label));
+  return t;
+}
+
+async function loadRecord(){
+  clearTimeout(recordTimer);
+  const o = $("record-out"), {season} = ctx();
+  try {
+    const r = await api(`/api/record?season=${season}`);
+    renderRecord(r);
+    if (r.building && tab === "record") recordTimer = setTimeout(loadRecord, 6000);
+  } catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+}
+
+function renderRecord(r){
+  const parts = [], s = r.summary;
+  if (r.building){
+    parts.push(el("p", "status", r.doing
+      ? `Grading week ${r.doing}\u2026 ${r.weeks_done} of ${r.weeks_total} weeks done. The first time takes a minute or two.`
+      : `Getting ready to grade\u2026 ${r.weeks_done} of ${r.weeks_total} weeks done.`));
+  }
+  if (r.error) parts.push(el("p", "status err", "Something went wrong while grading: " + r.error));
+  if (!s){
+    if (!r.building && !r.error) parts.push(el("p", "status", "No finished weeks to grade yet this season."));
+    $("record-out").replaceChildren(...parts); return;
+  }
+  const last = Math.max(...s.weekly.map(w => w.week));
+  parts.push(el("p", "", `${s.players.toLocaleString()} player-weeks graded across weeks 2 to ${last}. About ${pct0(s.base_rate)} of them had a big game.`));
+
+  parts.push(heading("h3", "How each tag did"));
+  for (const [key, label, kind] of [["strong", "Strong", "strong"], ["solid", "Solid", "solid"], ["risky", "Risky", "risky"]]){
+    const t = s.tags[key];
+    if (!t.n) continue;
+    const row = el("div", "tierrow");
+    row.append(plainTag(label, kind, "rec" + key));
+    row.append(el("div", "", `Had a big game ${pct0(t.actual)} of the time. We expected ${pct0(t.predicted)}. (${t.n.toLocaleString()} picks)`));
+    parts.push(row);
+  }
+  if (s.top10.rate != null)
+    parts.push(el("p", "", `Our top 10 each week: ${s.top10.hits} of ${s.top10.of} had a big game (${pct0(s.top10.rate)}), against ${pct0(s.base_rate)} for everyone.`));
+
+  const st = s.tags.strong;
+  if (st.n >= 30 && st.predicted - st.actual > 0.03)
+    parts.push(el("p", "groupnote", `Honest note: players we tag Strong hit a little less often than their odds say (${pct0(st.actual)} against ${pct0(st.predicted)}). Treat the top percentages as slightly generous.`));
+  else if (st.n >= 30)
+    parts.push(el("p", "groupnote", "So far the odds have lined up with what happened, even at the top."));
+
+  parts.push(heading("h3", "Does the percentage mean what it says?"));
+  const lg = el("div", "legend");
+  const a = el("span"), b = el("span");
+  const i1 = el("i"); i1.style.cssText = "border:1.5px solid var(--slate)"; a.append(i1, document.createTextNode("what we said"));
+  const i2 = el("i"); i2.style.background = "var(--blue)"; b.append(i2, document.createTextNode("what happened"));
+  lg.append(a, b); parts.push(lg);
+  for (const c of s.calibration){
+    const row = el("div", "calrow");
+    row.append(el("div", "", c.low === 0.5 ? "50%+" : `${Math.round(c.low * 100)} to ${Math.round(c.high * 100)}%`));
+    const bars = el("div", "bars"), w = x => Math.min(100, x / 0.6 * 100) + "%";
+    const said = el("div", "bar-said"); said.style.width = w(c.predicted);
+    const did = el("div", "bar-did"); did.style.width = w(c.actual);
+    bars.append(said, did); row.append(bars);
+    row.append(el("div", "calnote", `Said ${pct0(c.predicted)}, happened ${pct0(c.actual)} (${c.n.toLocaleString()} picks)`));
+    parts.push(row);
+  }
+
+  parts.push(heading("h3", "Week by week"));
+  const ul = el("ul", "tnotes");
+  s.weekly.forEach(w => ul.append(el("li", "", `Week ${w.week}: ${w.hits} of our top ${w.of} had a big game.`)));
+  parts.push(ul);
+  parts.push(el("p", "note", "Week 1 isn\u2019t graded, because with no games yet the picks lean on last year\u2019s rosters. Each week uses that week\u2019s injury report. A few weeks is a small sample, so expect the numbers to move."));
+  $("record-out").replaceChildren(...parts);
+}
+
 function leagueBody(){
   const p = $("platform").value;
   const b = {platform: p, season: +$("season").value, week: +$("week").value};
@@ -656,12 +836,14 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  for (const k of ["mine", "top", "trade"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  for (const k of ["mine", "plan", "trade", "top", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
-  $("trade-panel").style.display = t === "trade" ? "" : "none";
-  out.style.display = t === "trade" ? "none" : "";
+  for (const k of ["trade", "plan", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
+  out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
   if (t === "trade"){ refreshTrade(); return; }
+  if (t === "plan"){ refreshPlan(); return; }
+  if (t === "record"){ loadRecord(); return; }
   load();
 }
 SUBMITS.forEach(id => { $(id).onclick = load; });
@@ -671,9 +853,13 @@ for (const id of ["user", "espn-url"])
 $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
 $("tab-trade").onclick = () => setTab("trade");
+$("tab-plan").onclick = () => setTab("plan");
+$("tab-record").onclick = () => setTab("record");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
 buildTradePanel();
+buildPlanPanel();
+buildRecordPanel();
 
 (async () => {
   try {
