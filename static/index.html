@@ -145,6 +145,11 @@ details.more b{font-weight:600}
 .caption{font-size:12px;color:var(--slate)}
 .tnotes{margin:10px 0 0;padding-left:18px;color:var(--slate);font-size:14px}
 .tnotes li{margin:4px 0}
+.matchup.nextup{color:var(--blue);font-weight:500}
+.badge{font-size:12px;font-weight:600;margin-left:8px;color:var(--green)}
+.badge.fa{color:var(--amber-ink)}
+.nufilter{display:flex;gap:10px;align-items:center;margin:8px 0;font-size:14px;min-height:44px;cursor:pointer}
+.nufilter input{width:22px;height:22px;min-height:0;flex:none;padding:0;box-shadow:none}
 .versus{font-weight:600;margin:8px 0 0}
 .bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
   font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
@@ -228,6 +233,7 @@ details.more b{font-weight:600}
     <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
     <button role="tab" id="tab-plan" aria-selected="false">Game plan</button>
     <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
+    <button role="tab" id="tab-nextup" aria-selected="false">Next man up</button>
     <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
     <button role="tab" id="tab-record" aria-selected="false">Record</button>
   </div>
@@ -266,6 +272,7 @@ details.more b{font-weight:600}
 
   <div id="trade-panel" style="display:none"></div>
   <div id="plan-panel" style="display:none"></div>
+  <div id="nextup-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
@@ -394,6 +401,7 @@ function playerRow(p, rank){
   }
   const mu = matchupInfo(p);
   if (mu) meta.append(el("span", "matchup " + mu.kind, mu.text));
+  if (p.nu_why) meta.append(el("span", "matchup nextup", p.nu_why));
   r.append(meta);
 
   const right = el("div", "right");
@@ -706,6 +714,94 @@ function renderPlan(r){
   $("plan-out").replaceChildren(...parts);
 }
 
+/* ---- next man up: who inherits the carries and targets when a key player is out ---- */
+let NU = null, NU_KEY = "";
+
+function buildNextUpPanel(){
+  const panel = $("nextup-panel");
+  panel.append(heading("h2", "Next man up"));
+  panel.append(el("p", "groupnote", "When a key player is out, his carries and targets go to teammates. Here is who gains this week, and by about how much per game."));
+  const f = el("label", "nufilter"); f.id = "nu-filter";
+  const cb = el("input"); cb.type = "checkbox"; cb.id = "nu-mine"; cb.onchange = renderNextUp;
+  f.append(cb, document.createTextNode("Only show my players and free agents"));
+  panel.append(f);
+  const o = el("div"); o.id = "nextup-out"; o.setAttribute("aria-live", "polite"); panel.append(o);
+}
+
+function showNextUp(){
+  const {season, week} = ctx(), key = season + "-" + week;
+  if (NU && NU_KEY === key) renderNextUp(); else loadNextUp(key);
+}
+
+async function loadNextUp(key){
+  const o = $("nextup-out"), {season, week} = ctx();
+  o.replaceChildren(el("p", "status", "Checking this week\u2019s injury report\u2026"));
+  try { NU = await api(`/api/nextup?season=${season}&week=${week}`); NU_KEY = key; renderNextUp(); }
+  catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+}
+
+const nameList = names => names.length <= 1 ? (names[0] || "") : names.length === 2 ? names.join(" and ") : names[0] + " and others";
+const lower = s => s ? String(s).toLowerCase() : "";
+const gainOf = g => g.bump_firm + g.bump_maybe;
+
+function gainerRow(g, mine, fa){
+  const r = el("div", "row"), who = el("div", "who", g.name);
+  if (mine.has(g.player_id)) who.append(el("span", "badge", "On your team"));
+  else if (fa.has(g.player_id)) who.append(el("span", "badge fa", "Free agent"));
+  r.append(who);
+  const reasons = [];
+  if (g.because.length) reasons.push(`with ${nameList(g.because)} out`);
+  if (g.if_sits.length) reasons.push(`${g.because.length ? "+" + g.bump_maybe.toFixed(1) + " more " : ""}if ${nameList(g.if_sits)} sits`);
+  const meta = el("div", "meta", g.position + (g.ppg != null ? `, averaging ${g.ppg} points` : "") + ", " + reasons.join(", "));
+  const bits = [];
+  if (g.extra_targets >= 0.5) bits.push(`${g.extra_targets} more targets`);
+  if (g.extra_carries >= 0.5) bits.push(`${g.extra_carries} more carries`);
+  if (bits.length) meta.append(el("span", "matchup nextup", "Expect about " + bits.join(" and ") + " a game"));
+  r.append(meta);
+  const right = el("div", "right");
+  right.append(el("div", "pct", "+" + gainOf(g).toFixed(1)), el("div", "caption", "points per game"));
+  r.append(right);
+  return r;
+}
+
+function renderNextUp(){
+  const lg = curLeague();
+  const mine = new Set(lg && lg.roster ? lg.roster.map(p => p.id) : []), fa = new Set(lg && lg.fa_ids ? lg.fa_ids : []);
+  const haveLeague = !!(lg && lg.roster && lg.roster.length);
+  $("nu-filter").style.display = haveLeague ? "" : "none";
+  const only = haveLeague && $("nu-mine").checked, parts = [];
+
+  if (haveLeague){
+    const lines = [];
+    NU.teams.forEach(t => {
+      t.absent.filter(a => mine.has(a.player_id)).forEach(a =>
+        lines.push(`Your player ${a.name} is ${a.status.toLowerCase()}${a.injury ? " (" + lower(a.injury) + ")" : ""}.`));
+      const when = g => g.because.length ? "" : ` if ${nameList(g.if_sits)} sits`;
+      t.gainers.filter(g => mine.has(g.player_id)).forEach(g =>
+        lines.push(`${g.name}, on your team, gains about ${gainOf(g).toFixed(1)} points a game${when(g)}.`));
+      t.gainers.filter(g => fa.has(g.player_id) && !mine.has(g.player_id)).forEach(g =>
+        lines.push(`Free agent ${g.name} gains about ${gainOf(g).toFixed(1)} points a game${when(g)}. Worth a look.`));
+    });
+    parts.push(heading("h3", "For your team"));
+    if (lines.length){ const ul = el("ul", "tnotes"); lines.forEach(l => ul.append(el("li", "", l))); parts.push(ul); }
+    else parts.push(el("p", "groupnote", "None of your players are affected, and no free agent in your league gains much."));
+  }
+
+  const teams = NU.teams.map(t => ({...t, gainers: only ? t.gainers.filter(g => mine.has(g.player_id) || fa.has(g.player_id)) : t.gainers}))
+    .filter(t => t.gainers.length);
+  if (!teams.length){
+    parts.push(el("p", "status", only ? "Nothing here affects your players or the free agents in your league this week."
+      : "No key player has been newly ruled out this week, so no teammate gets a notable boost."));
+  }
+  teams.forEach(t => {
+    parts.push(heading("h3", t.team));
+    parts.push(el("p", "groupnote", "Missing: " + t.absent.map(a => `${a.position} ${a.name} (${a.status.toLowerCase()}${a.injury ? ", " + lower(a.injury) : ""})`).join("; ")));
+    t.gainers.forEach(g => parts.push(gainerRow(g, mine, fa)));
+  });
+  parts.push(el("p", "note", `${NU.evidence} Players who have been out for weeks aren\u2019t listed, because their absence is already in their teammates\u2019 recent numbers. A questionable player shows what happens if he sits. Quarterback injuries aren\u2019t covered yet. This is a guide on its own and isn\u2019t folded into the big-game percentages.`));
+  $("nextup-out").replaceChildren(...parts);
+}
+
 /* ---- track record: how our own calls actually did ---- */
 let recordTimer = null;
 
@@ -836,13 +932,14 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  for (const k of ["mine", "plan", "trade", "top", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  for (const k of ["mine", "plan", "trade", "nextup", "top", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
-  for (const k of ["trade", "plan", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
+  for (const k of ["trade", "plan", "nextup", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
   if (t === "trade"){ refreshTrade(); return; }
   if (t === "plan"){ refreshPlan(); return; }
+  if (t === "nextup"){ showNextUp(); return; }
   if (t === "record"){ loadRecord(); return; }
   load();
 }
@@ -854,11 +951,13 @@ $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
 $("tab-trade").onclick = () => setTab("trade");
 $("tab-plan").onclick = () => setTab("plan");
+$("tab-nextup").onclick = () => setTab("nextup");
 $("tab-record").onclick = () => setTab("record");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
 buildTradePanel();
 buildPlanPanel();
+buildNextUpPanel();
 buildRecordPanel();
 
 (async () => {
