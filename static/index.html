@@ -153,10 +153,12 @@ details.more b{font-weight:600}
 .tnotes{margin:10px 0 0;padding-left:18px;color:var(--slate);font-size:14px}
 .tnotes li{margin:4px 0}
 .matchup.nextup{color:var(--blue);font-weight:500}
+.matchup.ctx{color:var(--slate);font-weight:600}
 .badge{font-size:12px;font-weight:600;margin-left:8px;color:var(--green)}
 .badge.fa{color:var(--amber-ink)}
 .nufilter{display:flex;gap:10px;align-items:center;margin:8px 0;font-size:14px;min-height:44px;cursor:pointer}
 .nufilter input{width:22px;height:22px;min-height:0;flex:none;padding:0;box-shadow:none}
+.pct.small{font-size:22px;line-height:1.1}
 .versus{font-weight:600;margin:8px 0 0}
 .bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
   font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
@@ -242,6 +244,7 @@ details.more b{font-weight:600}
     <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
     <button role="tab" id="tab-nextup" aria-selected="false">Next man up</button>
     <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
+    <button role="tab" id="tab-weather" aria-selected="false">Weather</button>
     <button role="tab" id="tab-record" aria-selected="false">Record</button>
   </div>
 
@@ -280,10 +283,11 @@ details.more b{font-weight:600}
   <div id="trade-panel" style="display:none"></div>
   <div id="plan-panel" style="display:none"></div>
   <div id="nextup-panel" style="display:none"></div>
+  <div id="weather-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The odds also account for the game\u2019s betting lines (how many points each team is expected to score) and, for upcoming outdoor games, forecast wind. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
 </main>
 <div class="tray" aria-hidden="true">
   <svg viewBox="0 0 600 72" xmlns="http://www.w3.org/2000/svg">
@@ -409,6 +413,7 @@ function playerRow(p, rank){
   const mu = matchupInfo(p);
   if (mu) meta.append(el("span", "matchup " + mu.kind, mu.text));
   if (p.nu_why) meta.append(el("span", "matchup nextup", p.nu_why));
+  if (p.ctx_line) meta.append(el("span", "matchup ctx", p.ctx_line));
   r.append(meta);
 
   const right = el("div", "right");
@@ -416,11 +421,16 @@ function playerRow(p, rank){
   r.append(right);
 
   const hasProps = p.props && p.props.length;
-  if (hasProps || p.floor != null || p.def_allowed != null || AI){
+  const hasCtx = !!(p.ctx_notes && p.ctx_notes.length);
+  if (hasProps || p.floor != null || p.def_allowed != null || hasCtx || AI){
     const d = el("details", "more");
     d.append(el("summary", "", "Range and projected stats"));
     if (p.def_allowed != null && PLURAL[p.position])
       d.append(el("p", "range", `${p.opponent_team} has allowed ${p.def_allowed.toFixed(1)} fantasy points per game to ${PLURAL[p.position]} over its last 6 games (${ordinal(p.def_rank)} of 32 in points allowed).`));
+    if (hasCtx){
+      p.ctx_notes.forEach(n => d.append(el("p", "range", n)));
+      if (p.ctx_pts) d.append(el("p", "range", `Together these move his big-game chance by ${p.ctx_pts > 0 ? "+" : ""}${p.ctx_pts.toFixed(1)} points.`));
+    }
     if (p.floor != null)
       d.append(el("p", "range", `Likely range: ${Math.round(p.floor)} to ${Math.round(p.ceiling)} fantasy points`));
     if (hasProps){
@@ -842,6 +852,74 @@ function renderNextUp(){
   $("nextup-out").replaceChildren(...parts);
 }
 
+/* ---- stadium and weather: the forecast at kickoff for every game ---- */
+let WX = null, WX_KEY = "";
+
+function buildWeatherPanel(){
+  const panel = $("weather-panel");
+  panel.append(heading("h2", "Stadium and weather"));
+  panel.append(el("p", "groupnote", "The stadium and the forecast at kickoff for each game this week. Strong wind lowers passing odds in open-air stadiums. Dome games ignore weather."));
+  const o = el("div"); o.id = "weather-out"; o.setAttribute("aria-live", "polite"); panel.append(o);
+}
+
+function showWeather(){
+  const {season, week} = ctx(), key = season + "-" + week;
+  if (WX && WX_KEY === key) renderWeather(); else loadWeather(key);
+}
+
+async function loadWeather(key){
+  const o = $("weather-out"), {season, week} = ctx();
+  o.replaceChildren(el("p", "status", "Checking the forecasts\u2026"));
+  try { WX = await api(`/api/weather?season=${season}&week=${week}`); WX_KEY = key; renderWeather(); }
+  catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+}
+
+function forecastText(f){
+  const parts = [`${Math.round(f.temp)}\u00b0F` + (f.feels != null && Math.abs(f.feels - f.temp) >= 4 ? ` (feels like ${Math.round(f.feels)}\u00b0F)` : "")];
+  parts.push(`wind ${Math.round(f.wind)} mph` + (f.gust && f.gust - f.wind >= 5 ? `, gusts to ${Math.round(f.gust)}` : ""));
+  if (f.precip_prob != null) parts.push(`${Math.round(f.precip_prob)}% chance of precipitation`);
+  if (f.condition) parts.push(f.condition);
+  return parts.join(", ");
+}
+
+function gameRow(g){
+  const r = el("div", "row");
+  r.append(el("div", "who", `${g.away} at ${g.home}${g.neutral ? " (neutral site)" : ""}`));
+  const when = g.kickoff_utc ? new Date(g.kickoff_utc).toLocaleString(undefined, {weekday: "short", hour: "numeric", minute: "2-digit"}) : "";
+  const meta = el("div", "meta", [when, g.stadium].filter(Boolean).join(", "));
+  const roof = {dome: "Dome", retractable: "Retractable roof", "open-air": "Open-air", unknown: "Roof not known"}[g.roof_type];
+  meta.append(el("span", "matchup avg", [roof, g.surface].filter(Boolean).join(", ")));
+  const f = g.forecast, right = el("div", "right");
+  if (g.status === "forecast" && f){
+    meta.append(el("span", "matchup ctx", "Forecast at kickoff" + (g.roof_type === "retractable" ? " (only if the roof is open)" : "") + ": " + forecastText(f)));
+    right.append(el("div", "pct", Math.round(f.temp) + "\u00b0"), el("div", "caption", "at kickoff"));
+  } else if (g.status === "indoors"){
+    meta.append(el("span", "matchup avg", "Indoors, so weather doesn\u2019t matter."));
+    right.append(el("div", "pct small", "Indoors"), el("div", "caption", "no weather"));
+  } else if (g.status === "played"){
+    const a = g.actual;
+    meta.append(el("span", "matchup avg", a ? `Recorded at the game: ${a.temp != null ? Math.round(a.temp) + "\u00b0F" : ""}${a.temp != null && a.wind != null ? ", " : ""}${a.wind != null ? "wind " + Math.round(a.wind) + " mph" : ""}.` : "Already played."));
+    right.append(el("div", "pct small", a && a.temp != null ? Math.round(a.temp) + "\u00b0" : "Played"), el("div", "caption", "final"));
+  } else {
+    const why = {later: "The forecast isn\u2019t out yet. It appears about two weeks before kickoff.", unavailable: "The forecast service didn\u2019t answer. Try again shortly.", no_forecast: "No forecast for this venue."}[g.status];
+    meta.append(el("span", "matchup avg", why));
+    right.append(el("div", "pct small", "\u2014"), el("div", "caption", "no forecast"));
+  }
+  g.notes.forEach(n => meta.append(el("span", "matchup " + (g.wind_level === "strong" && /wind/i.test(n) ? "tough" : "avg"), n)));
+  r.append(meta, right);
+  return r;
+}
+
+function renderWeather(){
+  const parts = [];
+  const open = WX.filter(g => g.status === "forecast" && g.roof_type === "open-air" && g.forecast && g.forecast.wind >= 15);
+  if (open.length) parts.push(el("p", "", `Windy games to watch: ${open.map(g => `${g.away} at ${g.home} (${Math.round(g.forecast.wind)} mph)`).join(", ")}.`));
+  if (!WX.length) parts.push(el("p", "status", "No games found for that week."));
+  WX.forEach(g => parts.push(gameRow(g)));
+  parts.push(el("p", "note", "Forecasts come from Open-Meteo and refresh every half hour. Roof status for retractable stadiums is decided close to kickoff. Wind is the only weather factor the odds use: we tested temperature, stadium type, and field surface and found no reliable effect, and we couldn\u2019t test rain or snow."));
+  $("weather-out").replaceChildren(...parts);
+}
+
 /* ---- track record: how our own calls actually did ---- */
 let recordTimer = null;
 
@@ -923,7 +1001,7 @@ function renderRecord(r){
   const ul = el("ul", "tnotes");
   s.weekly.forEach(w => ul.append(el("li", "", `Week ${w.week}: ${w.hits} of our top ${w.of} had a big game.`)));
   parts.push(ul);
-  parts.push(el("p", "note", "Week 1 isn\u2019t graded, because with no games yet the picks lean on last year\u2019s rosters. Each week uses that week\u2019s injury report. A few weeks is a small sample, so expect the numbers to move."));
+  parts.push(el("p", "note", "Week 1 isn\u2019t graded, because with no games yet the picks lean on last year\u2019s rosters. Each week uses that week\u2019s injury report and the closing betting lines. Weather isn\u2019t included, because past forecasts weren\u2019t saved. A few weeks is a small sample, so expect the numbers to move."));
   $("record-out").replaceChildren(...parts);
 }
 
@@ -972,14 +1050,15 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  for (const k of ["mine", "plan", "trade", "nextup", "top", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  for (const k of ["mine", "plan", "trade", "nextup", "top", "weather", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
-  for (const k of ["trade", "plan", "nextup", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
+  for (const k of ["trade", "plan", "nextup", "weather", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
   if (t === "trade"){ refreshTrade(); return; }
   if (t === "plan"){ refreshPlan(); return; }
   if (t === "nextup"){ showNextUp(); return; }
+  if (t === "weather"){ showWeather(); return; }
   if (t === "record"){ loadRecord(); return; }
   load();
 }
@@ -992,12 +1071,14 @@ $("tab-top").onclick = () => setTab("top");
 $("tab-trade").onclick = () => setTab("trade");
 $("tab-plan").onclick = () => setTab("plan");
 $("tab-nextup").onclick = () => setTab("nextup");
+$("tab-weather").onclick = () => setTab("weather");
 $("tab-record").onclick = () => setTab("record");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
 buildTradePanel();
 buildPlanPanel();
 buildNextUpPanel();
+buildWeatherPanel();
 buildRecordPanel();
 
 (async () => {
