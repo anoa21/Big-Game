@@ -58,6 +58,10 @@ button.link{border:0;background:none;color:var(--slate);padding:4px 0;min-height
   color:var(--slate);border-bottom:3px solid transparent;font-weight:600}
 .tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--green)}
 
+.inputrow{display:flex;gap:8px;flex:1 1 100%}
+.inputrow input{flex:1 1 auto;min-width:0}
+.inputrow .submit{flex:0 0 auto}
+button:disabled{opacity:.55;cursor:default}
 .platform{display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .platform.on{display:flex}
 .platform details{flex:1 1 100%;color:var(--slate);font-size:14px}
@@ -139,10 +143,16 @@ details.more b{font-weight:600}
         </select></div>
     </div>
     <div class="platform on" id="p-sleeper">
-      <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
+      <div class="inputrow">
+        <input id="user" type="text" placeholder="Sleeper username" autocomplete="username" aria-label="Sleeper username">
+        <button class="primary submit" id="go-sleeper">Show my leagues</button>
+      </div>
     </div>
     <div class="platform" id="p-espn">
-      <input id="espn-url" type="text" placeholder="Paste your ESPN team page link" aria-label="ESPN team page link">
+      <div class="inputrow">
+        <input id="espn-url" type="text" placeholder="Paste your ESPN team page link" aria-label="ESPN team page link">
+        <button class="primary submit" id="go-espn">Show my leagues</button>
+      </div>
       <details>
         <summary>Private league? Add your ESPN cookies</summary>
         <input id="espn-s2" type="password" placeholder="espn_s2 cookie" aria-label="espn_s2 cookie">
@@ -344,8 +354,12 @@ function leagueBody(){
   return b;
 }
 
+const SUBMITS = ["go", "go-sleeper", "go-espn"];
+const busy = on => SUBMITS.forEach(id => { $(id).disabled = on; });
+
 async function load(){
   const {season, week} = ctx();
+  busy(true);
   try {
     if (tab === "top"){
       status("Running simulations…");
@@ -364,6 +378,7 @@ async function load(){
     if (!LEAGUES.length) return status("No leagues found for that season.");
     renderLeagues();
   } catch (e){ status(e.message, true); }
+  finally { busy(false); }
 }
 
 function showPlatform(){
@@ -376,11 +391,13 @@ function setTab(t){
   $("tab-mine").setAttribute("aria-selected", t === "mine");
   $("tab-top").setAttribute("aria-selected", t === "top");
   $("mine-controls").style.display = t === "mine" ? "" : "none";
+  $("go").style.display = t === "top" ? "" : "none";
   load();
 }
-$("go").onclick = load;
+SUBMITS.forEach(id => { $(id).onclick = load; });
 $("platform").onchange = showPlatform;
-$("user").addEventListener("keydown", e => { if (e.key === "Enter") load(); });
+for (const id of ["user", "espn-url"])
+  $(id).addEventListener("keydown", e => { if (e.key === "Enter") load(); });
 $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
