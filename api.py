@@ -22,6 +22,7 @@ from pydantic import BaseModel
 import insight
 import matchup
 import model
+import nextup
 import providers
 import record
 import ros
@@ -32,6 +33,7 @@ app = FastAPI(title="Big Game")
 STATIC = Path(__file__).parent / "static"
 BASE_TTL, ENRICH_TTL = 6 * 3600, 30 * 60   # model every 6h, injuries every 30min
 _base, _enriched, _lock = {}, {}, threading.Lock()
+_nu = {}                                   # next-man-up results, per (season, week)
 _sessions = {}                             # Yahoo logins, in memory only
 
 
@@ -71,6 +73,13 @@ def predictions(season, week):
                 if not b:          # nothing older to fall back on
                     raise
         df = sim.enrich(b[1], b[2], season, week)
+        try:
+            nu = nextup.compute(b[2], season, week, sim.injury_report(season, week))
+        except Exception:
+            nu = {"teams": [], "by_player": {}, "evidence": nextup.EVIDENCE}
+        _nu[key] = nu
+        df["nu_bump"] = df["player_id"].map(lambda i: nu["by_player"].get(i, {}).get("bump"))
+        df["nu_why"] = df["player_id"].map(lambda i: nu["by_player"].get(i, {}).get("why"))
         _enriched[key] = (now, df)
         return df
 
@@ -93,7 +102,7 @@ def ros_table(season, week):
 
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team",
         "final_prob", "floor", "median", "ceiling", "injury_status", "injury",
-        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed"]
+        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed", "nu_bump", "nu_why"]
 
 
 def to_records(df):
@@ -156,6 +165,7 @@ def split(preds, league, table=None):
             fa = tn.isin(league["available"])
         else:
             fa = ~tn.isin(league["rostered"] | league["mine"])
+        out["fa_ids"] = [i for i in table.index[fa]]
         out["roster"] = [{"id": r.player_id, "name": r.name, "position": r.position, "team": r.team}
                          for r in mine_t.itertuples()]
         out["replacement"] = {k: round(v, 1) for k, v in
@@ -351,6 +361,15 @@ def matchup_view(req: MatchupReq):
     result["league"] = lg.get("name")
     result["rec"] = float(ss.get("rec", 1.0))
     return result
+
+
+@app.get("/api/nextup")
+def next_man_up(season: int, week: int):
+    try:
+        predictions(season, week)                  # builds and caches the result
+        return _nu[(season, week)]
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't work out who gains this week: {e}")
 
 
 @app.get("/api/record")
