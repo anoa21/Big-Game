@@ -39,6 +39,18 @@ def current_week():
         return 2025, 9
 
 
+def _retry(fn, tries=3, delay=3):
+    """The free nflverse data host occasionally 404s for a moment while it
+    updates, so retry before giving up."""
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception:
+            if i == tries - 1:
+                raise
+            time.sleep(delay * (i + 1))
+
+
 def predictions(season, week):
     key = (season, week)
     with _lock:
@@ -48,9 +60,13 @@ def predictions(season, week):
             return e[1]
         b = _base.get(key)
         if not b or now - b[0] > BASE_TTL:
-            preds, hist = model.predict_with_history(
-                [season - 2, season - 1, season], season, week)
-            b = _base[key] = (now, preds, hist)
+            try:
+                preds, hist = _retry(lambda: model.predict_with_history(
+                    [season - 2, season - 1, season], season, week))
+                b = _base[key] = (now, preds, hist)
+            except Exception:
+                if not b:          # nothing older to fall back on
+                    raise
         df = sim.enrich(b[1], b[2], season, week)
         _enriched[key] = (now, df)
         return df
@@ -114,19 +130,30 @@ def split(preds, league):
 def sleeper_leagues(req):
     try:
         uid = sleeper.get_user_id(req.username)
+    except (requests.RequestException, TypeError, KeyError):
+        raise HTTPException(404, "Sleeper doesn't recognize that username. Use the "
+                                 "username from Sleeper's settings, not your display name.")
+    try:
         leagues = sleeper.get_leagues(uid, req.season)
         players = sleeper.get_players()
-    except (requests.RequestException, TypeError, KeyError):
-        raise HTTPException(404, "Sleeper user not found, or Sleeper is unreachable.")
-    out = []
+    except requests.RequestException:
+        raise HTTPException(502, "Couldn't reach Sleeper. Try again in a minute.")
+    if not leagues:
+        raise HTTPException(404, f"Sleeper found your account, but it has no NFL leagues in "
+                                 f"the {req.season} season. Check the Season box.")
+    out, problems = [], []
     for lg in leagues:
         try:
             r = sleeper.get_my_roster(lg["league_id"], uid)
             mine = {sleeper.norm(n) for _, n, _ in sleeper.roster_names(r, players)}
             rostered = sleeper.all_rostered(lg["league_id"], players)
-        except Exception:
+        except Exception as e:
+            problems.append(f"{lg.get('name', 'a league')}: {e}")
             continue
         out.append({"league": lg["name"], "mine": mine, "rostered": rostered})
+    if not out:
+        raise HTTPException(502, "Found your leagues but couldn't read them ("
+                                 + "; ".join(problems[:3]) + ").")
     return out
 
 
