@@ -77,3 +77,19 @@ def slots_from(roster_positions):
         if p in LINEUP_SLOTS:
             slots[p] = slots.get(p, 0) + 1
     return slots or None
+
+
+def get_league(league_id):
+    return _get(f"/league/{league_id}")
+
+
+def get_rosters(league_id):
+    return _get(f"/league/{league_id}/rosters")
+
+
+def get_league_users(league_id):
+    return _get(f"/league/{league_id}/users")
+
+
+def get_matchups(league_id, week):
+    return _get(f"/league/{league_id}/matchups/{week}")
