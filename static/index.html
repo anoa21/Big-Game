@@ -43,7 +43,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:6;bord
 main{position:relative;z-index:1;flex:1 0 auto;width:100%;max-width:560px;margin:0 auto;padding:24px 20px 28px}
 
 .brand{display:flex;align-items:center;gap:12px;margin:4px 0 2px}
-.brand img{width:44px;height:44px;border-radius:11px}
+.brand img{width:56px;height:56px;border-radius:13px}
 h1{font:400 26px/1.1 var(--marker);margin:0;letter-spacing:.2px}
 .sub{color:var(--slate);margin:8px 0 18px;max-width:46ch}
 
@@ -119,6 +119,30 @@ details.more b{font-weight:600}
 .note-box{font-size:14px;background:var(--panel);border:1.5px solid var(--line);border-radius:6px 9px 7px 8px;
   padding:10px 12px;margin-top:8px;white-space:pre-wrap}
 
+.tside{margin-bottom:6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 4px 4px 12px;min-height:40px;background:var(--panel);
+  border:1.5px solid var(--ink);border-radius:7px 9px 8px 10px / 9px 7px 10px 8px;font-weight:500;font-size:15px}
+.chip .x{min-height:32px;min-width:32px;padding:0;border:0;box-shadow:none;background:none;font-size:20px;line-height:1;color:var(--slate)}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.quick .groupnote{flex:1 1 100%;margin:0}
+.qbtn{min-height:40px;padding:6px 12px;font-size:14px;font-weight:500;box-shadow:none}
+.tside input[type=text]{width:100%;margin-top:6px}
+.results{list-style:none;margin:6px 0 0;padding:0}
+.results li{margin:0}
+.results button{display:block;width:100%;text-align:left;border-radius:0;border-width:0 0 1px;box-shadow:none;background:var(--panel)}
+.results .none{color:var(--slate);padding:10px 2px;font-size:14px}
+#trade-go{margin:18px 0 6px}
+.verdict{position:relative;display:inline-grid;place-items:center;width:260px;max-width:100%;height:54px;margin:16px 0 6px;
+  font:400 22px/1 var(--marker);transform:rotate(-1deg)}
+.verdict svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:none;stroke-width:2.6;stroke-linecap:round}
+.verdict.strong svg{stroke:var(--green)}
+.verdict.solid svg{stroke:var(--amber)}
+.verdict.risky svg{stroke:var(--red)}
+.verdict span{position:relative}
+.caption{font-size:12px;color:var(--slate)}
+.tnotes{margin:10px 0 0;padding-left:18px;color:var(--slate);font-size:14px}
+.tnotes li{margin:4px 0}
 .status{color:var(--slate);padding:24px 0}
 .status.err{color:var(--red)}
 .note{color:var(--slate);font-size:14px;margin:30px 0 0;max-width:52ch}
@@ -144,6 +168,7 @@ details.more b{font-weight:600}
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
     <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
+    <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
   </div>
 
   <div id="mine-controls">
@@ -177,6 +202,8 @@ details.more b{font-weight:600}
       <span id="yahoo-msg" class="sub"></span>
     </div>
   </div>
+
+  <div id="trade-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
   <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
@@ -387,13 +414,160 @@ function renderLeagues(){
     const sel = el("select"); sel.setAttribute("aria-label", "League");
     LEAGUES.forEach((lg, i) => { const o = el("option", "", lg.league); o.value = i; sel.append(o); });
     sel.value = LEAGUE_IDX;
-    sel.onchange = () => { LEAGUE_IDX = +sel.value; renderLeagues(); };
+    sel.onchange = () => { LEAGUE_IDX = +sel.value; TRADE.give.length = 0; renderLeagues(); };
     bar.append(sel); parts.push(bar);
   } else {
     parts.push(el("div", "groupnote", LEAGUES[0].league));
   }
   parts.push(lineup(LEAGUES[LEAGUE_IDX]));
   out.replaceChildren(...parts);
+}
+
+/* ---- trade analyzer ---- */
+const TRADE = {give: [], get: []};
+const MAX_SIDE = 5;
+let searchTimer = null;
+const curLeague = () => LEAGUES.length ? LEAGUES[LEAGUE_IDX] : null;
+const taken = id => TRADE.give.concat(TRADE.get).some(p => p.id === id);
+const sgn = n => (n > 0 ? "+" : n < 0 ? "\u2212" : "") + Math.abs(n);
+
+function buildTradePanel(){
+  const panel = $("trade-panel");
+  panel.append(heading("h2", "Trade analyzer"));
+  const c = el("p", "groupnote"); c.id = "trade-ctx"; panel.append(c);
+  for (const [side, title] of [["give", "You give"], ["get", "You get"]]){
+    const box = el("div", "tside");
+    box.append(heading("h3", title));
+    const chips = el("div", "chips"); chips.id = "chips-" + side;
+    const quick = el("div", "quick"); quick.id = "quick-" + side;
+    const input = el("input"); input.type = "text"; input.id = "q-" + side; input.autocomplete = "off";
+    input.placeholder = "Search for a player";
+    input.setAttribute("aria-label", `Search for a player you ${side}`);
+    input.addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(side), 250); });
+    const list = el("ul", "results"); list.id = "res-" + side;
+    box.append(chips, quick, input, list);
+    panel.append(box);
+  }
+  const go = el("button", "primary", "Analyze trade"); go.id = "trade-go"; go.onclick = analyzeTrade;
+  const o = el("div"); o.id = "trade-out"; o.setAttribute("aria-live", "polite");
+  panel.append(go, o);
+}
+
+function refreshTrade(){
+  const lg = curLeague();
+  $("trade-ctx").textContent = lg && lg.roster && lg.roster.length
+    ? `Using your roster in ${lg.league}. The trade is judged by how it changes your best starting lineup.`
+    : "No league loaded, so players are compared against a typical free agent. Load a league under My teams to see how a trade changes your lineup.";
+  renderSide("give"); renderSide("get");
+}
+
+function renderSide(side){
+  const chips = $("chips-" + side); chips.replaceChildren();
+  TRADE[side].forEach((p, i) => {
+    const c = el("span", "chip", `${p.name} (${p.position}, ${p.team})`);
+    const x = el("button", "x", "\u00d7"); x.setAttribute("aria-label", `Remove ${p.name}`);
+    x.onclick = () => { TRADE[side].splice(i, 1); renderSide("give"); renderSide("get"); };
+    c.append(x); chips.append(c);
+  });
+  const quick = $("quick-" + side); quick.replaceChildren();
+  const lg = curLeague();
+  if (side === "give" && lg && lg.roster && lg.roster.length){
+    quick.append(el("p", "groupnote", "Tap one of your players:"));
+    lg.roster.filter(p => !taken(p.id)).forEach(p => {
+      const b = el("button", "qbtn", `${p.name}, ${p.position}`);
+      b.onclick = () => addPlayer("give", p);
+      quick.append(b);
+    });
+  }
+}
+
+function addPlayer(side, p){
+  if (taken(p.id) || TRADE[side].length >= MAX_SIDE) return;
+  TRADE[side].push({id: p.id, name: p.name, position: p.position, team: p.team});
+  $("q-" + side).value = ""; $("res-" + side).replaceChildren();
+  renderSide("give"); renderSide("get");
+}
+
+async function runSearch(side){
+  const q = $("q-" + side).value.trim(), list = $("res-" + side);
+  if (q.length < 2){ list.replaceChildren(); return; }
+  try {
+    const {season, week} = ctx();
+    const hits = (await api(`/api/players?season=${season}&week=${week}&q=${encodeURIComponent(q)}`)).filter(h => !taken(h.id));
+    list.replaceChildren(...(hits.length ? hits.map(h => {
+      const li = el("li"), b = el("button", "", `${h.name}, ${h.position}, ${h.team}`);
+      b.onclick = () => addPlayer(side, h); li.append(b); return li;
+    }) : [el("li", "none", "No players found")]));
+  } catch (e){ list.replaceChildren(el("li", "none", e.message)); }
+}
+
+const VERDICT = {good: ["Good for you", "strong"], lean_good: ["Leans your way", "strong"],
+  even: ["About even", "solid"], lean_bad: ["Leans against you", "risky"], bad: ["Bad for you", "risky"]};
+
+function verdictEl(level){
+  const [text, kind] = VERDICT[level], w = 260, h = 54;
+  const v = el("div", "verdict " + kind);
+  v.append(svgEl(w, h, ovalPath(w, h, hashStr(text))), el("span", "", text));
+  return v;
+}
+
+function tradeRow(p){
+  const r = el("div", "row");
+  r.append(el("div", "who", p.name));
+  const meta = el("div", "meta", `${p.position}, ${p.team}, ${p.exp_games} games left`);
+  if (p.injury_status){
+    meta.append(document.createTextNode(", "));
+    meta.append(el("span", "inj" + (p.injury_status === "Out" ? " out" : ""), p.injury_status));
+  }
+  r.append(meta);
+  const right = el("div", "right");
+  right.append(el("div", "pct", String(p.ros_pts)), el("div", "caption", "points, rest of season"));
+  r.append(right);
+  const d = el("details", "more");
+  d.append(el("summary", "", "How this is figured"));
+  d.append(el("p", "range", `Recent form: ${p.ppg} points per game. Projected: ${p.ros_ppg} per game over the rest of his schedule (${p.sched_label}). Likely total: ${p.low} to ${p.high} points. Worth ${p.value} points more than a free agent at his position.`));
+  r.append(d);
+  return r;
+}
+
+function renderTrade(r){
+  const parts = [verdictEl(r.level)];
+  const range = `Likely range for the change: ${sgn(r.range[0])} to ${sgn(r.range[1])} points.`;
+  if (r.basis === "lineup"){
+    const l = r.lineup;
+    parts.push(el("p", "", `Your best starting lineup goes from ${l.before} to ${l.after} projected points over the rest of the season (${sgn(l.diff)}). ${range}`));
+    if (l.enters.length) parts.push(el("p", "groupnote", `Moves into your lineup: ${l.enters.join(", ")}.`));
+    if (l.leaves.length) parts.push(el("p", "groupnote", `Moves out of your lineup: ${l.leaves.join(", ")}.`));
+  } else {
+    const g = r.give.reduce((s, p) => s + p.value, 0), t = r.get.reduce((s, p) => s + p.value, 0);
+    parts.push(el("p", "", `Compared with a typical free agent at each position, you give up ${g} points of value and get ${t}, a net of ${sgn(r.diff)}. ${range}`));
+  }
+  parts.push(heading("h3", "You give"), ...r.give.map(tradeRow), heading("h3", "You get"), ...r.get.map(tradeRow));
+  if (r.notes.length){
+    parts.push(heading("h3", "Things to check"));
+    const ul = el("ul", "tnotes"); r.notes.forEach(n => ul.append(el("li", "", n))); parts.push(ul);
+  }
+  parts.push(el("p", "note", "These are estimates built from recent form and the remaining schedule. Injuries, role changes, and what the other manager needs can change everything, so treat the verdict as one input."));
+  $("trade-out").replaceChildren(...parts);
+}
+
+async function analyzeTrade(){
+  const o = $("trade-out");
+  if (!TRADE.give.length || !TRADE.get.length){
+    o.replaceChildren(el("p", "status", "Add at least one player to each side first.")); return;
+  }
+  const lg = curLeague(), {season, week} = ctx();
+  const body = {season: +season, week: +week, give: TRADE.give.map(p => p.id), get: TRADE.get.map(p => p.id)};
+  if (lg && lg.roster && lg.roster.length){
+    body.roster = lg.roster.map(p => p.id);
+    if (lg.slots) body.slots = lg.slots;
+    if (lg.replacement) body.replacement = lg.replacement;
+  }
+  const btn = $("trade-go"); btn.disabled = true;
+  o.replaceChildren(el("p", "status", "Projecting the rest of the season\u2026"));
+  try { renderTrade(await api("/api/trade", body)); }
+  catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+  finally { btn.disabled = false; }
 }
 
 function leagueBody(){
@@ -427,7 +601,7 @@ async function load(){
     if (b.username) localStorage.setItem("bg_user", b.username);
     if (b.url) localStorage.setItem("bg_espn", b.url);
     status("Loading your leagues and running simulations…");
-    LEAGUES = await api("/api/leagues", b); LEAGUE_IDX = 0;
+    LEAGUES = await api("/api/leagues", b); LEAGUE_IDX = 0; TRADE.give.length = 0;
     if (!LEAGUES.length) return status("No leagues found for that season.");
     renderLeagues();
   } catch (e){ status(e.message, true); }
@@ -441,10 +615,12 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  $("tab-mine").setAttribute("aria-selected", t === "mine");
-  $("tab-top").setAttribute("aria-selected", t === "top");
+  for (const k of ["mine", "top", "trade"]) $("tab-" + k).setAttribute("aria-selected", t === k);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
+  $("trade-panel").style.display = t === "trade" ? "" : "none";
+  out.style.display = t === "trade" ? "none" : "";
   $("go").style.display = t === "top" ? "" : "none";
+  if (t === "trade"){ refreshTrade(); return; }
   load();
 }
 SUBMITS.forEach(id => { $(id).onclick = load; });
@@ -453,7 +629,10 @@ for (const id of ["user", "espn-url"])
   $(id).addEventListener("keydown", e => { if (e.key === "Enter") load(); });
 $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
+$("tab-trade").onclick = () => setTab("trade");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
+
+buildTradePanel();
 
 (async () => {
   try {
