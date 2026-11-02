@@ -20,8 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import insight
+import matchup
 import model
 import providers
+import record
 import ros
 import sim
 import sleeper
@@ -146,7 +148,7 @@ def split(preds, league, table=None):
     free = free[free["injury_status"] != "Out"].head(8)
     out = {"league": league["league"], "players": to_records(mine),
            "free_agents": to_records(free), "roster": [], "slots": league.get("slots"),
-           "replacement": None}
+           "replacement": None, "league_id": league.get("league_id")}
     if table is not None and len(table):        # what the trade analyzer needs
         tn = table["name"].map(sleeper.norm)
         mine_t = table[tn.isin(league["mine"])].sort_values("ros_pts", ascending=False)
@@ -185,7 +187,8 @@ def sleeper_leagues(req):
             problems.append(f"{lg.get('name', 'a league')}: {e}")
             continue
         out.append({"league": lg["name"], "mine": mine, "rostered": rostered,
-                    "slots": sleeper.slots_from(lg.get("roster_positions"))})
+                    "slots": sleeper.slots_from(lg.get("roster_positions")),
+                    "league_id": lg["league_id"]})
     if not out:
         raise HTTPException(502, "Found your leagues but couldn't read them ("
                                  + "; ".join(problems[:3]) + ").")
@@ -285,6 +288,79 @@ def trade(req: TradeReq):
         raise HTTPException(502, f"Couldn't analyze that trade: {e}")
 
 
+# ------------------------------------------------------- game plan + record --
+class MatchupReq(BaseModel):
+    username: str
+    league_id: str
+    season: int
+    week: int
+
+
+@app.post("/api/matchup")
+def matchup_view(req: MatchupReq):
+    try:
+        uid = sleeper.get_user_id(req.username)
+        lg = sleeper.get_league(req.league_id)
+        rosters = sleeper.get_rosters(req.league_id)
+        matchups = sleeper.get_matchups(req.league_id, req.week)
+        users = sleeper.get_league_users(req.league_id)
+        sl_players = sleeper.get_players()
+    except (requests.RequestException, TypeError, KeyError):
+        raise HTTPException(502, "Couldn't reach Sleeper for that league. Try again shortly.")
+    me = next((r for r in rosters if r.get("owner_id") == uid or uid in (r.get("co_owners") or [])), None)
+    if not me:
+        raise HTTPException(404, "Couldn't find your team in that league.")
+    mine = next((m for m in matchups or [] if m.get("roster_id") == me["roster_id"]), None)
+    if not mine or mine.get("matchup_id") is None:
+        raise HTTPException(404, f"No game for your team in week {req.week}. It may be a bye or playoff week in your league.")
+    other = next((m for m in matchups if m.get("matchup_id") == mine["matchup_id"]
+                  and m["roster_id"] != me["roster_id"]), None)
+    if not other:
+        raise HTTPException(404, "Couldn't find your opponent for that week.")
+
+    names = {u["user_id"]: (u.get("metadata") or {}).get("team_name") or u.get("display_name")
+             for u in users or []}
+    owner = {r["roster_id"]: names.get(r.get("owner_id")) for r in rosters}
+    ss = lg.get("scoring_settings") or {}
+    try:
+        preds = predictions(req.season, req.week)
+        table = ros_table(req.season, req.week)
+        hist = _base[(req.season, req.week)][2]
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't build this week's projections: {e}")
+    sampler = matchup.Sampler(hist, preds, table, req.week, rec=float(ss.get("rec", 1.0)),
+                              te_bonus=float(ss.get("bonus_rec_te", 0.0)))
+    labels = [p for p in (lg.get("roster_positions") or []) if p != "BN"]
+
+    def lineup(entry):
+        ids = entry.get("starters") or []
+        slots = labels if len(labels) == len(ids) else [None] * len(ids)
+        out = []
+        for slot, sid in zip(slots, ids):
+            p = matchup.resolve(sid, sl_players, table, sampler)
+            out.append((slot or p["position"] or "FLEX", p))
+        return out
+
+    mine_slots, opp_slots = lineup(mine), lineup(other)
+    starters = set(mine.get("starters") or [])
+    off = set(me.get("reserve") or []) | set(me.get("taxi") or [])
+    bench = [matchup.resolve(pid, sl_players, table, sampler) for pid in mine.get("players") or []
+             if pid not in starters and pid not in off]
+    result = matchup.analyze(mine_slots, bench, opp_slots, owner.get(me["roster_id"]) or "You",
+                             owner.get(other["roster_id"]) or "Your opponent", req.week)
+    result["league"] = lg.get("name")
+    result["rec"] = float(ss.get("rec", 1.0))
+    return result
+
+
+@app.get("/api/record")
+def track_record(season: int):
+    try:
+        return record.report(season)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't grade this season yet: {e}")
+
+
 # ------------------------------------------------------------------ Yahoo --
 def redirect_uri():
     return os.getenv("BASE_URL", "http://localhost:8000").rstrip("/") + "/auth/yahoo/callback"
@@ -327,6 +403,22 @@ def get_insight(name: str, position: str, team: str, opponent: str,
         raise HTTPException(429, str(e))
     except requests.RequestException:
         raise HTTPException(502, "Couldn't fetch news right now.")
+
+
+# Phones and browsers also look for the icon at these standard addresses.
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+def touch_icon():
+    return FileResponse(STATIC / "icon-180.png", media_type="image/png")
+
+
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+def touch_icon_precomposed():
+    return FileResponse(STATIC / "icon-180.png", media_type="image/png")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse(STATIC / "icon-rounded-64.png", media_type="image/png")
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
