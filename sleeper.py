@@ -65,3 +65,15 @@ def all_rostered(league_id, players):
             if n:
                 names.add(norm(n))
     return names
+
+
+LINEUP_SLOTS = {"QB", "RB", "WR", "TE", "FLEX", "SUPER_FLEX", "REC_FLEX", "WRRB_FLEX"}
+
+
+def slots_from(roster_positions):
+    """Starting-lineup slots from a Sleeper league's roster_positions."""
+    slots = {}
+    for p in roster_positions or []:
+        if p in LINEUP_SLOTS:
+            slots[p] = slots.get(p, 0) + 1
+    return slots or None
