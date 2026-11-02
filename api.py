@@ -22,6 +22,7 @@ from pydantic import BaseModel
 import insight
 import model
 import providers
+import ros
 import sim
 import sleeper
 
@@ -72,6 +73,22 @@ def predictions(season, week):
         return df
 
 
+_ros, _ros_lock = {}, threading.Lock()
+
+
+def ros_table(season, week):
+    """Rest-of-season numbers for every active QB/RB/WR/TE (cached 30 min)."""
+    key = (season, week)
+    with _ros_lock:
+        e = _ros.get(key)
+        if e and time.time() - e[0] < ENRICH_TTL:
+            return e[1]
+        predictions(season, week)                 # makes sure the stats are loaded
+        table = ros.build(_base[key][2], season, week, sim.injury_report(season, week))
+        _ros[key] = (time.time(), table)
+        return table
+
+
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team",
         "final_prob", "floor", "median", "ceiling", "injury_status", "injury",
         "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed"]
@@ -86,7 +103,7 @@ def warm():
     """Pre-build this week's picks, but only after the server has been up for
     a while: small hosts need the port open right away and the warm-up is heavy."""
     s, w = current_week()
-    t = threading.Timer(45, lambda: predictions(s, w))
+    t = threading.Timer(45, lambda: ros_table(s, w))     # also builds the picks
     t.daemon = True
     t.start()
 
@@ -118,7 +135,7 @@ class LeagueReq(BaseModel):
     swid: Optional[str] = None
 
 
-def split(preds, league):
+def split(preds, league, table=None):
     """Your players, plus the best free agents in this league."""
     mine = preds[preds["player_display_name"].map(sleeper.norm).isin(league["mine"])]
     names = preds["player_display_name"].map(sleeper.norm)
@@ -127,8 +144,21 @@ def split(preds, league):
     else:
         free = preds[~names.isin(league["rostered"] | league["mine"])]
     free = free[free["injury_status"] != "Out"].head(8)
-    return {"league": league["league"], "players": to_records(mine),
-            "free_agents": to_records(free)}
+    out = {"league": league["league"], "players": to_records(mine),
+           "free_agents": to_records(free), "roster": [], "slots": league.get("slots"),
+           "replacement": None}
+    if table is not None and len(table):        # what the trade analyzer needs
+        tn = table["name"].map(sleeper.norm)
+        mine_t = table[tn.isin(league["mine"])].sort_values("ros_pts", ascending=False)
+        if league.get("available") is not None:
+            fa = tn.isin(league["available"])
+        else:
+            fa = ~tn.isin(league["rostered"] | league["mine"])
+        out["roster"] = [{"id": r.player_id, "name": r.name, "position": r.position, "team": r.team}
+                         for r in mine_t.itertuples()]
+        out["replacement"] = {k: round(v, 1) for k, v in
+                              ros.replacement_ppg(table, set(table.index[fa])).items()}
+    return out
 
 
 def sleeper_leagues(req):
@@ -154,7 +184,8 @@ def sleeper_leagues(req):
         except Exception as e:
             problems.append(f"{lg.get('name', 'a league')}: {e}")
             continue
-        out.append({"league": lg["name"], "mine": mine, "rostered": rostered})
+        out.append({"league": lg["name"], "mine": mine, "rostered": rostered,
+                    "slots": sleeper.slots_from(lg.get("roster_positions"))})
     if not out:
         raise HTTPException(502, "Found your leagues but couldn't read them ("
                                  + "; ".join(problems[:3]) + ").")
@@ -196,7 +227,62 @@ def leagues(req: LeagueReq, request: Request):
     except requests.RequestException:
         raise HTTPException(502, "Couldn't reach that platform. Try again shortly.")
     preds = predictions(req.season, req.week)
-    return [split(preds, lg) for lg in found]
+    try:
+        table = ros_table(req.season, req.week)
+    except Exception:
+        table = None                     # picks still work without the trade data
+    return [split(preds, lg, table) for lg in found]
+
+
+# ------------------------------------------------------------------ trades --
+@app.get("/api/players")
+def player_search(season: int, week: int, q: str = "", limit: int = 8):
+    key = sleeper.norm(q)
+    if len(key) < 2:
+        return []
+    try:
+        table = ros_table(season, week)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load player data: {e}")
+    hits = table[table["name"].map(sleeper.norm).str.contains(key, regex=False)]
+    hits = hits.sort_values("ros_pts", ascending=False).head(min(limit, 15))
+    return [{"id": r.player_id, "name": r.name, "position": r.position, "team": r.team}
+            for r in hits.itertuples()]
+
+
+class TradeReq(BaseModel):
+    season: int
+    week: int
+    give: list[str]
+    get: list[str]
+    roster: Optional[list[str]] = None
+    slots: Optional[dict] = None
+    replacement: Optional[dict] = None
+
+
+@app.post("/api/trade")
+def trade(req: TradeReq):
+    if not req.give or not req.get:
+        raise HTTPException(400, "Add at least one player to each side.")
+    if len(req.give) > 5 or len(req.get) > 5:
+        raise HTTPException(400, "Trades are limited to 5 players per side.")
+    slots = None
+    if req.slots:
+        slots = {k: max(0, min(int(v), 8)) for k, v in req.slots.items()
+                 if k in ({"QB", "RB", "WR", "TE"} | set(ros.FLEX_ELIGIBLE)) and isinstance(v, (int, float))}
+    repl = None
+    if req.replacement:
+        repl = {k: max(0.0, min(float(v), 40.0)) for k, v in req.replacement.items()
+                if k in ros.POS and isinstance(v, (int, float))}
+    try:
+        table = ros_table(req.season, req.week)
+        return ros.analyze(table, req.give, req.get, (req.roster or [])[:40], slots, repl)
+    except KeyError as e:
+        raise HTTPException(400, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't analyze that trade: {e}")
 
 
 # ------------------------------------------------------------------ Yahoo --
