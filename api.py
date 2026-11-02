@@ -74,7 +74,7 @@ def predictions(season, week):
 
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team",
         "final_prob", "floor", "median", "ceiling", "injury_status", "injury",
-        "fantasy_points_ppr_L3", "props"]
+        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed"]
 
 
 def to_records(df):
