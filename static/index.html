@@ -142,6 +142,13 @@ details.more b{font-weight:600}
 .verdict.solid svg{stroke:var(--amber)}
 .verdict.risky svg{stroke:var(--red)}
 .verdict span{position:relative}
+.partnerbox{margin:14px 0 4px}
+.partnerbox label{display:block;font-size:14px;font-weight:500;color:var(--slate);margin-bottom:4px}
+.partnerbox select{max-width:100%}
+.mutual{font:400 19px/1.25 var(--marker);margin:2px 0 8px}
+.mutual.good{color:var(--green)}
+.mutual.even{color:var(--amber-ink)}
+.mutual.bad{color:var(--red)}
 .caption{font-size:12px;color:var(--slate)}
 .tnotes{margin:10px 0 0;padding-left:18px;color:var(--slate);font-size:14px}
 .tnotes li{margin:4px 0}
@@ -497,6 +504,7 @@ function renderLeagues(){
 /* ---- trade analyzer ---- */
 const TRADE = {give: [], get: []};
 const MAX_SIDE = 5;
+let PARTNER_MANUAL = false;
 let searchTimer = null;
 const curLeague = () => LEAGUES.length ? LEAGUES[LEAGUE_IDX] : null;
 const taken = id => TRADE.give.concat(TRADE.get).some(p => p.id === id);
@@ -519,9 +527,28 @@ function buildTradePanel(){
     box.append(chips, quick, input, list);
     panel.append(box);
   }
+  const pb = el("div", "partnerbox"); pb.id = "partner-box";
+  const lab = el("label", "", "Trade partner"); lab.htmlFor = "partner";
+  const sel = el("select"); sel.id = "partner"; sel.onchange = () => { PARTNER_MANUAL = true; };
+  pb.append(lab, sel, el("p", "groupnote", "Pick the team you\u2019re trading with to see how the trade affects their roster. We pick it for you when everyone you\u2019re getting is on one team."));
+  panel.append(pb);
   const go = el("button", "primary", "Analyze trade"); go.id = "trade-go"; go.onclick = analyzeTrade;
   const o = el("div"); o.id = "trade-out"; o.setAttribute("aria-live", "polite");
   panel.append(go, o);
+}
+
+const partnerTeams = () => { const lg = curLeague(); return lg && lg.teams ? lg.teams.filter(t => !t.mine) : []; };
+
+function syncPartner(){
+  const teams = partnerTeams(), sel = $("partner");
+  $("partner-box").style.display = teams.length ? "" : "none";
+  const cur = sel.value;
+  sel.replaceChildren(new Option("Not selected", ""), ...teams.map((t, i) => new Option(t.name, String(i))));
+  sel.value = cur !== "" && +cur < teams.length ? cur : "";
+  if (teams.length && !PARTNER_MANUAL){            // follow who you're getting, unless you chose by hand
+    const hit = TRADE.get.length ? teams.map((t, i) => [t, i]).filter(([t]) => TRADE.get.every(p => t.roster.includes(p.id))) : [];
+    sel.value = hit.length === 1 ? String(hit[0][1]) : "";
+  }
 }
 
 function refreshTrade(){
@@ -529,7 +556,7 @@ function refreshTrade(){
   $("trade-ctx").textContent = lg && lg.roster && lg.roster.length
     ? `Using your roster in ${lg.league}. The trade is judged by how it changes your best starting lineup.`
     : "No league loaded, so players are compared against a typical free agent. Load a league under My teams to see how a trade changes your lineup.";
-  renderSide("give"); renderSide("get");
+  renderSide("give"); renderSide("get"); syncPartner();
 }
 
 function renderSide(side){
@@ -537,7 +564,7 @@ function renderSide(side){
   TRADE[side].forEach((p, i) => {
     const c = el("span", "chip", `${p.name} (${p.position}, ${p.team})`);
     const x = el("button", "x", "\u00d7"); x.setAttribute("aria-label", `Remove ${p.name}`);
-    x.onclick = () => { TRADE[side].splice(i, 1); renderSide("give"); renderSide("get"); };
+    x.onclick = () => { TRADE[side].splice(i, 1); renderSide("give"); renderSide("get"); syncPartner(); };
     c.append(x); chips.append(c);
   });
   const quick = $("quick-" + side); quick.replaceChildren();
@@ -556,7 +583,7 @@ function addPlayer(side, p){
   if (taken(p.id) || TRADE[side].length >= MAX_SIDE) return;
   TRADE[side].push({id: p.id, name: p.name, position: p.position, team: p.team});
   $("q-" + side).value = ""; $("res-" + side).replaceChildren();
-  renderSide("give"); renderSide("get");
+  renderSide("give"); renderSide("get"); syncPartner();
 }
 
 async function runSearch(side){
@@ -603,6 +630,7 @@ function tradeRow(p){
 
 function renderTrade(r){
   const parts = [verdictEl(r.level)];
+  if (r.partner) parts.push(el("p", "mutual " + r.partner.mutual.kind, r.partner.mutual.text));
   const range = `Likely range for the change: ${sgn(r.range[0])} to ${sgn(r.range[1])} points.`;
   if (r.basis === "lineup"){
     const l = r.lineup;
@@ -612,6 +640,16 @@ function renderTrade(r){
   } else {
     const g = r.give.reduce((s, p) => s + p.value, 0), t = r.get.reduce((s, p) => s + p.value, 0);
     parts.push(el("p", "", `Compared with a typical free agent at each position, you give up ${g} points of value and get ${t}, a net of ${sgn(r.diff)}. ${range}`));
+  }
+  if (r.partner){
+    const p = r.partner, l = p.lineup;
+    parts.push(heading("h3", `How it affects ${p.name}`));
+    parts.push(el("p", "", `Their best starting lineup goes from ${l.before} to ${l.after} projected points over the rest of the season (${sgn(l.diff)}). Likely range for the change: ${sgn(p.range[0])} to ${sgn(p.range[1])} points.`));
+    if (l.enters.length) parts.push(el("p", "groupnote", `Moves into their lineup: ${l.enters.join(", ")}.`));
+    if (l.leaves.length) parts.push(el("p", "groupnote", `Moves out of their lineup: ${l.leaves.join(", ")}.`));
+    if (p.thin.length) parts.push(el("p", "groupnote", `They would have an open starting spot at ${p.thin.join(", ")} and would need to pick up a free agent.`));
+    p.notes.forEach(n => parts.push(el("p", "groupnote", n)));
+    parts.push(el("p", "groupnote", "Managers are more likely to accept when their own lineup improves, so this is a rough guide to how your offer will land."));
   }
   parts.push(heading("h3", "You give"), ...r.give.map(tradeRow), heading("h3", "You get"), ...r.get.map(tradeRow));
   if (r.notes.length){
@@ -634,6 +672,8 @@ async function analyzeTrade(){
     if (lg.slots) body.slots = lg.slots;
     if (lg.replacement) body.replacement = lg.replacement;
   }
+  const pi = $("partner").value, pt = pi === "" ? null : partnerTeams()[+pi];
+  if (pt){ body.partner = pt.roster; body.partner_name = pt.name; }
   const btn = $("trade-go"); btn.disabled = true;
   o.replaceChildren(el("p", "status", "Projecting the rest of the season\u2026"));
   try { renderTrade(await api("/api/trade", body)); }
@@ -918,7 +958,7 @@ async function load(){
     if (b.username) localStorage.setItem("bg_user", b.username);
     if (b.url) localStorage.setItem("bg_espn", b.url);
     status("Loading your leagues and running simulations…");
-    LEAGUES = await api("/api/leagues", b); LEAGUE_IDX = 0; TRADE.give.length = 0;
+    LEAGUES = await api("/api/leagues", b); LEAGUE_IDX = 0; TRADE.give.length = 0; PARTNER_MANUAL = false;
     if (!LEAGUES.length) return status("No leagues found for that season.");
     renderLeagues();
   } catch (e){ status(e.message, true); }
