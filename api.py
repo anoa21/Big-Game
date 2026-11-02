@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import context
 import insight
 import matchup
 import model
@@ -102,7 +103,7 @@ def ros_table(season, week):
 
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team",
         "final_prob", "floor", "median", "ceiling", "injury_status", "injury",
-        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed", "nu_bump", "nu_why"]
+        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed", "nu_bump", "nu_why", "ctx_pts", "ctx_line", "ctx_notes"]
 
 
 def to_records(df):
@@ -382,6 +383,23 @@ def matchup_view(req: MatchupReq):
     result["league"] = lg.get("name")
     result["rec"] = float(ss.get("rec", 1.0))
     return result
+
+
+_wx = {}                                   # weather view cache, per (season, week)
+
+
+@app.get("/api/weather")
+def weather(season: int, week: int):
+    key = (season, week)
+    hit = _wx.get(key)
+    if hit and time.time() - hit[0] < 30 * 60:
+        return hit[1]
+    try:
+        games = context.week_conditions(season, week)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't load the stadium and weather details: {e}")
+    _wx[key] = (time.time(), games)
+    return games
 
 
 @app.get("/api/nextup")
