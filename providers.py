@@ -49,15 +49,19 @@ def espn_league(url, season, espn_s2=None, swid=None):
     if team_id is None:
         raise ValueError("Your link needs teamId=... (open your team page "
                          "on ESPN and copy that link).")
-    mine, rostered = set(), set()
+    mine, rostered, teams = set(), set(), []
     for t in data.get("teams", []):
+        names = set()
         for e in (t.get("roster") or {}).get("entries", []):
             name = e["playerPoolEntry"]["player"]["fullName"]
+            names.add(norm(name))
             rostered.add(norm(name))
             if t["id"] == team_id:
                 mine.add(norm(name))
+        label = t.get("name") or f"{t.get('location', '')} {t.get('nickname', '')}".strip() or f"Team {t['id']}"
+        teams.append({"name": label, "mine": t["id"] == team_id, "names": names})
     return {"league": (data.get("settings") or {}).get("name", "ESPN league"),
-            "mine": mine, "rostered": rostered, "available": None}
+            "mine": mine, "rostered": rostered, "available": None, "teams": teams}
 
 
 # --------------------------------------------------------------- Yahoo ----
