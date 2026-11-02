@@ -121,9 +121,11 @@ def forecast_wind(team, kick):
     return None if not f else f["wind"]
 
 
-def roof_type(roof, history):
-    """'dome', 'retractable' or 'open-air', from the game row or, if missing, the team's history."""
+def roof_type(roof, history, neutral=False):
+    """'dome', 'retractable', 'open-air' or 'unknown', from the game row or, if missing, the team's history."""
     r = roof if roof == roof else None
+    if r is None and neutral:
+        return "unknown"            # a neutral-site venue: the home team's roof says nothing about it
     if r in ("dome",):
         return "dome"
     if r in ("closed", "open"):
@@ -159,7 +161,7 @@ def game_context(season, week, weather=True):
     jobs, out = [], {}
     for g in s.itertuples():
         spread, total = g.spread_line, g.total_line
-        rt = roof_type(g.roof, roofs.get(g.home_team))
+        rt = roof_type(g.roof, roofs.get(g.home_team) if g.location == "Home" else None, g.location != "Home")
         sf = surface_text(g.surface) or surface_text(surf.get(g.home_team))
         kick = _kickoff_utc(g.gameday, g.gametime)
         for team, opp, home in ((g.home_team, g.away_team, True), (g.away_team, g.home_team, False)):
@@ -199,10 +201,12 @@ def forecast_line(f, retractable=False):
 def stadium_line(c):
     if not c.get("stadium"):
         return None
-    sf = f" with a {c['surface']} surface" if c.get("surface") else ""
-    return {"dome": f"{c['stadium']} is a dome{sf}, so weather doesn't matter.",
+    art = "an" if (c.get("surface") or "x")[0] in "aeiou" else "a"
+    sf = f" with {art} {c['surface']} surface" if c.get("surface") else ""
+    return {"unknown": f"{c['stadium']} is a neutral-site venue, so we don't have its roof or weather details.",
+            "dome": f"{c['stadium']} is a dome{sf}, so weather doesn't matter.",
             "retractable": f"{c['stadium']} has a retractable roof{sf}, so weather only matters if it's open. That is decided close to kickoff.",
-            "open-air": f"{c['stadium']} is open-air{sf}."}[c["roof_type"]]
+            "open-air": f"{c['stadium']} is open-air{sf}."}.get(c["roof_type"])
 
 
 def adjust(position, team, ctx):
@@ -225,15 +229,84 @@ def adjust(position, team, ctx):
         wind_part = -BETA_WIND * max(c["wind"] - WIND_FLOOR, 0.0) / 10.0
         shift += wind_part
         if wind_part < -0.01:
-            notes.append("Wind like this tends to hurt passing, so his chance is lowered a little.")
+            notes.append("Wind like this tends to hurt passing, which lowers his chance.")
     return shift, wind_part, notes
 
 
-def label(shift, wind_part, ctx_team):
-    """Short tag for the row when the context moves the odds noticeably."""
-    if wind_part <= -0.06 and abs(wind_part) >= abs(shift - wind_part):
-        return "windy forecast"
-    imp = (ctx_team or {}).get("implied")
-    if imp is None:
-        return "game context"
-    return "high-scoring game" if imp >= 24.2 else "low-scoring game" if imp <= 20.5 else "game script"
+def label(shift, wind_part, ctx_team=None):
+    """Short tag naming every factor that moves the odds noticeably."""
+    imp_part, parts = shift - wind_part, []
+    if imp_part >= 0.06:
+        parts.append("high-scoring game")
+    elif imp_part <= -0.06:
+        parts.append("low-scoring game")
+    if wind_part <= -0.06:
+        parts.append("windy forecast")
+    return " and ".join(parts) or "game context"
+
+
+def _wind_effect(wind):
+    if wind is None:
+        return None
+    if wind >= 15:
+        return ("Strong wind. In past games, QBs, WRs and TEs hit big games noticeably less often in wind like this, "
+                "so their odds are lowered.", "strong")
+    if wind >= 10:
+        return "Breezy. It has a small effect on passing, so passing odds come down slightly.", "mild"
+    return "Light wind, so there is no adjustment.", "none"
+
+
+def week_conditions(season, week, now=None):
+    """Every game of the week: stadium, roof, surface and the forecast (or the result) at kickoff."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    s = nfl.load_schedules([season]).to_pandas()
+    s = s[(s["game_type"] == "REG") & (s["week"] == week)]
+    try:
+        roofs, surf = team_history(season)
+    except Exception:
+        roofs, surf = {}, {}
+    games, jobs = [], []
+    for g in s.itertuples():
+        neutral = g.location != "Home"
+        rt = roof_type(g.roof, None if neutral else roofs.get(g.home_team), neutral)
+        kick = _kickoff_utc(g.gameday, g.gametime)
+        rec = {"home": g.home_team, "away": g.away_team, "neutral": neutral, "stadium": g.stadium, "roof_type": rt,
+               "surface": surface_text(g.surface) or (None if neutral else surface_text(surf.get(g.home_team))),
+               "kickoff_utc": kick.isoformat() if kick else None, "forecast": None, "actual": None,
+               "status": None, "notes": [], "wind_level": "none"}
+        played = kick is not None and now > kick + dt.timedelta(hours=4)
+        if rt == "dome":
+            rec["status"] = "indoors"
+        elif played:
+            rec["status"] = "played"
+            if g.temp == g.temp or g.wind == g.wind:
+                rec["actual"] = {"temp": None if g.temp != g.temp else float(g.temp),
+                                 "wind": None if g.wind != g.wind else float(g.wind)}
+        elif neutral or g.home_team not in STADIUMS or kick is None:
+            rec["status"] = "no_forecast"
+        elif kick > now + dt.timedelta(days=15):
+            rec["status"] = "later"
+        else:
+            rec["status"] = "forecast"
+            jobs.append((len(games), g.home_team, kick))
+        games.append(rec)
+    if jobs:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for (i, _, _), f in zip(jobs, ex.map(lambda j: forecast_at(j[1], j[2]), jobs)):
+                games[i]["forecast"] = f
+                if f is None:
+                    games[i]["status"] = "unavailable"
+    for r in games:
+        f = r["forecast"]
+        if f and r["roof_type"] == "open-air":
+            eff = _wind_effect(f["wind"])
+            if eff:
+                r["notes"].append(eff[0]); r["wind_level"] = eff[1]
+            if f["temp"] is not None and f["temp"] <= 35:
+                r["notes"].append("Cold. In past games, cold didn't change how often players had big games, so there is no adjustment.")
+            if (f.get("precip_prob") or 0) >= 50 or (f.get("precip_in") or 0) >= 0.05:
+                r["notes"].append("Rain or snow is likely. We don't adjust for precipitation, because we couldn't test its effect.")
+        elif f and r["roof_type"] == "retractable":
+            r["notes"].append("The roof decision comes close to kickoff. These conditions only matter if it is open.")
+    games.sort(key=lambda r: (r["kickoff_utc"] or "", r["home"]))
+    return games
