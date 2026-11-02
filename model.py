@@ -21,8 +21,17 @@ FEATURES = (
 )
 
 
+KEEP = list(dict.fromkeys(
+    ["player_id", "player_display_name", "position", "team", "opponent_team",
+     "season", "week", "season_type"] + USAGE +
+    ["passing_yards", "passing_tds", "rushing_tds", "receiving_tds", "receptions"]))
+
+
 def load_stats(seasons):
-    df = nfl.load_player_stats(seasons).to_pandas()
+    raw = nfl.load_player_stats(seasons)
+    # Keep only the columns we use: the full table has 150 and wastes memory,
+    # which matters on small hosting plans.
+    df = raw.select([c for c in KEEP if c in raw.columns]).to_pandas()
     df = df[(df["season_type"] == "REG") & df["position"].isin(POSITIONS)].copy()
     return df.sort_values(["season", "week"]).reset_index(drop=True)
 
