@@ -120,6 +120,21 @@ def td_rate_avg(hist_df):
             for p in PROPS for s in COUNT_STATS if s in d}
 
 
+def defense_table(hist_df, last_n=6):
+    """Points each defense allowed per game to each position over its last
+    `last_n` games, ranked across all teams (rank 1 = allows the MOST)."""
+    allowed = (hist_df[hist_df["fantasy_points_ppr"].notna()]
+               .groupby(["opponent_team", "position", "season", "week"])
+               ["fantasy_points_ppr"].sum().reset_index()
+               .sort_values(["season", "week"]))
+    t = (allowed.groupby(["opponent_team", "position"])["fantasy_points_ppr"]
+         .apply(lambda x: x.tail(last_n).mean()).reset_index()
+         .rename(columns={"fantasy_points_ppr": "allowed"}))
+    t["rank"] = t.groupby("position")["allowed"].rank(ascending=False, method="min").astype(int)
+    return {(r.opponent_team, r.position): (int(r.rank), float(r.allowed))
+            for r in t.itertuples()}
+
+
 def injury_report(season, week):
     """gsis_id -> (status, injury) for players on the official report."""
     try:
@@ -142,6 +157,7 @@ def enrich(preds, hist_df, season, week, blend=0.5):
     tail = add_td_col(hist_df).groupby("player_id").tail(HIST_N)
     games = {pid: g for pid, g in tail.groupby("player_id")}
     rate_avg = td_rate_avg(hist_df)
+    dtable = defense_table(hist_df)
     rows = []
     for r in preds.itertuples():
         status, injury = inj.get(r.player_id, (None, None))
@@ -155,10 +171,13 @@ def enrich(preds, hist_df, season, week, blend=0.5):
         props = (project_props(games[r.player_id], r.position, f, play, rate_avg,
                                rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
                  if r.player_id in games else [])
-        rows.append((p_sim, p10, p50, p90, status, injury, play, final, props))
+        d_rank, d_allowed = dtable.get((r.opponent_team, r.position), (None, None))
+        rows.append((p_sim, p10, p50, p90, status, injury, play, final, props,
+                     d_rank, d_allowed))
     out = preds.copy()
     out[["p_sim", "floor", "median", "ceiling", "injury_status",
-         "injury", "play_prob", "final_prob", "props"]] = pd.DataFrame(rows, index=out.index)
+         "injury", "play_prob", "final_prob", "props",
+         "def_rank", "def_allowed"]] = pd.DataFrame(rows, index=out.index)
     return out.sort_values("final_prob", ascending=False).reset_index(drop=True)
 
 
