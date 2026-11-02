@@ -9,7 +9,8 @@
 <meta name="theme-color" content="#cfd4d8">
 <link rel="manifest" href="/static/manifest.json">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
-<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="/static/icon-rounded-64.png">
+<link rel="preload" as="image" href="/static/splash-coach.webp" type="image/webp">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -43,7 +44,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:6;bord
 main{position:relative;z-index:1;flex:1 0 auto;width:100%;max-width:560px;margin:0 auto;padding:24px 20px 28px}
 
 .brand{display:flex;align-items:center;gap:12px;margin:4px 0 2px}
-.brand img{width:56px;height:56px;border-radius:13px}
+.brand img{width:56px;height:56px}
 h1{font:400 26px/1.1 var(--marker);margin:0;letter-spacing:.2px}
 .sub{color:var(--slate);margin:8px 0 18px;max-width:46ch}
 
@@ -147,14 +148,47 @@ details.more b{font-weight:600}
 .status.err{color:var(--red)}
 .note{color:var(--slate);font-size:14px;margin:30px 0 0;max-width:52ch}
 
+/* opening screen: the coach, shown once per visit */
+#splash{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;padding:24px;cursor:pointer;
+  background:linear-gradient(115deg, transparent 26%, rgba(255,255,255,.5) 38%, transparent 50%), var(--board);
+  animation:splashOut .45s ease 2.3s forwards}
+#splash img{width:min(84vw,430px);height:auto;filter:drop-shadow(0 8px 12px rgba(0,0,0,.2));
+  animation:splashIn .6s cubic-bezier(.2,.8,.2,1) both}
+.splash-title{font:400 28px/1.1 var(--marker);text-align:center;margin-top:6px}
+.splash-tap{color:var(--slate);font-size:14px}
+@keyframes splashIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes splashOut{to{opacity:0;visibility:hidden}}
+@media (prefers-reduced-motion:reduce){
+  #splash{animation-duration:.01s;animation-delay:1.4s}
+  #splash img{animation:none}
+}
+
 /* marker tray at the bottom edge of the board */
 .tray{position:relative;z-index:1;flex:0 0 auto;margin-top:8px;padding:0 7px 7px}
 .tray svg{display:block;width:100%;max-width:640px;margin:0 auto;height:auto}
 </style>
 </head>
 <body>
+<div id="splash" aria-hidden="true">
+  <picture>
+    <source srcset="/static/splash-coach.webp" type="image/webp">
+    <img src="/static/splash-coach.png" alt="" width="840" height="665">
+  </picture>
+  <div class="splash-title">Big Game Fantasy</div>
+  <div class="splash-tap">Tap to start</div>
+</div>
+<script>
+(function(){
+  var s = document.getElementById("splash"), seen = false;
+  try { seen = sessionStorage.getItem("bg_splash") === "1"; sessionStorage.setItem("bg_splash", "1"); } catch (e) {}
+  if (seen){ s.remove(); return; }
+  s.addEventListener("click", function(){ s.style.animation = "splashOut .25s ease forwards"; });
+  s.addEventListener("animationend", function(e){ if (e.animationName === "splashOut") s.remove(); });
+})();
+</script>
 <main>
-  <div class="brand"><img src="/static/logo.svg" alt=""><h1>Big Game Fantasy</h1></div>
+  <div class="brand"><img src="/static/icon-rounded-192.png" alt="" width="56" height="56"><h1>Big Game Fantasy</h1></div>
   <p class="sub">Your lineup, with the odds each player has a big game this week.</p>
 
   <div class="controls">
