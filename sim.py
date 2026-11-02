@@ -13,6 +13,7 @@ import zlib
 import numpy as np
 import pandas as pd
 import nflreadpy as nfl
+import context
 import model
 
 PLAY_PROB = {"Out": 0.0, "Doubtful": 0.05, "Questionable": 0.7}
@@ -147,7 +148,7 @@ def injury_report(season, week):
             for r in inj.itertuples()}
 
 
-def enrich(preds, hist_df, season, week, blend=0.5, with_props=True):
+def enrich(preds, hist_df, season, week, blend=0.5, with_props=True, weather=True):
     """Add simulation odds, point range and injury status to model output."""
     inj = injury_report(season, week)
     hist_df = hist_df.sort_values(["season", "week"])
@@ -158,6 +159,10 @@ def enrich(preds, hist_df, season, week, blend=0.5, with_props=True):
     games = {pid: g for pid, g in tail.groupby("player_id")}
     rate_avg = td_rate_avg(hist_df)
     dtable = defense_table(hist_df)
+    try:
+        ctx = context.game_context(season, week, weather=weather)
+    except Exception:
+        ctx = {}                              # no schedule context: odds just stay as they were
     rows = []
     for r in preds.itertuples():
         status, injury = inj.get(r.player_id, (None, None))
@@ -168,16 +173,24 @@ def enrich(preds, hist_df, season, week, blend=0.5, with_props=True):
             rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
         p_model = r.big_game_prob * play
         final = p_model if np.isnan(p_sim) else blend * p_model + (1 - blend) * p_sim
+        shift, wind_part, ctx_notes = context.adjust(r.position, r.team, ctx)
+        ctx_pts, ctx_line = 0.0, None
+        if play > 0 and shift and 0 < final < 1:
+            adj = 1 / (1 + np.exp(-(np.log(final / (1 - final)) + shift)))
+            ctx_pts = round(100 * (adj - final), 1)
+            final = adj
+            if abs(ctx_pts) >= 2.0:                      # only call it out on the row when it matters
+                ctx_line = f"Game context: {context.label(shift, wind_part, ctx.get(r.team))}, {ctx_pts:+.1f} points to his chance"
         props = (project_props(games[r.player_id], r.position, f, play, rate_avg,
                                rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
                  if with_props and r.player_id in games else [])
         d_rank, d_allowed = dtable.get((r.opponent_team, r.position), (None, None))
         rows.append((p_sim, p10, p50, p90, status, injury, play, final, props,
-                     d_rank, d_allowed))
+                     d_rank, d_allowed, ctx_pts, ctx_line, ctx_notes))
     out = preds.copy()
     out[["p_sim", "floor", "median", "ceiling", "injury_status",
          "injury", "play_prob", "final_prob", "props",
-         "def_rank", "def_allowed"]] = pd.DataFrame(rows, index=out.index)
+         "def_rank", "def_allowed", "ctx_pts", "ctx_line", "ctx_notes"]] = pd.DataFrame(rows, index=out.index)
     return out.sort_values("final_prob", ascending=False).reset_index(drop=True)
 
 
