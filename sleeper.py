@@ -23,9 +23,9 @@ def get_leagues(user_id, season):
 
 def get_my_roster(league_id, user_id):
     for roster in _get(f"/league/{league_id}/rosters"):
-        if roster.get("owner_id") == user_id:
+        if roster.get("owner_id") == user_id or user_id in (roster.get("co_owners") or []):
             return roster
-    raise ValueError("No roster found for this user in that league")
+    raise ValueError("no team in this league belongs to that username")
 
 
 def get_players():
@@ -38,8 +38,13 @@ def get_players():
     return data
 
 
+_SUFFIX = {"jr", "sr", "ii", "iii", "iv", "v"}
+
+
 def norm(name):
-    return re.sub(r"[^a-z]", "", name.lower().replace(" jr", "").replace(" sr", ""))
+    """Normalize a player name so 'Kenneth Walker III' == 'kenneth walker'."""
+    words = re.sub(r"[^a-z ]", "", (name or "").lower().replace(".", "")).split()
+    return "".join(w for w in words if w not in _SUFFIX)
 
 
 def roster_names(roster, players):
@@ -49,3 +54,14 @@ def roster_names(roster, players):
         p = players.get(pid, {})
         out.append((p.get("gsis_id"), p.get("full_name") or pid, p.get("position")))
     return out
+
+
+def all_rostered(league_id, players):
+    """Normalized names of every player on any team in the league."""
+    names = set()
+    for roster in _get(f"/league/{league_id}/rosters"):
+        for pid in roster.get("players") or []:
+            n = players.get(pid, {}).get("full_name")
+            if n:
+                names.add(norm(n))
+    return names
