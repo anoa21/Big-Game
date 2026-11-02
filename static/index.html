@@ -33,11 +33,14 @@ main{max-width:640px;margin:0 auto;padding:20px 16px 48px}
 .brand img{width:48px;height:48px;border-radius:12px}
 h1{font:700 44px/1 var(--display);margin:0;letter-spacing:.2px}
 .sub{color:var(--slate);margin:0 0 20px}
-.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}
+.pick{display:flex;flex-direction:column;gap:4px}
+.pick label{font-size:14px;font-weight:500;color:var(--slate)}
+.weekline{font:600 20px/1.1 var(--display);color:var(--slate);margin:4px 0 0}
 input,select,button{font:500 16px var(--body);color:var(--ink);background:var(--panel);
   border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px}
 input[type=text],input[type=password]{flex:1 1 200px}
-input[type=number]{width:84px}
+input[type=number]{width:96px}
 button{cursor:pointer}
 button.primary{background:var(--ink);color:var(--chalk);border-color:var(--ink)}
 button.link{border:0;background:none;color:var(--slate);padding:4px 0;min-height:32px;
@@ -83,8 +86,10 @@ h3{font:600 20px/1.1 var(--display);margin:24px 0 2px;color:var(--slate)}
   <p class="sub">Simulated odds that each player has a big fantasy game this week, using recent form, the defense they face, and the injury report.</p>
 
   <div class="controls">
-    <input id="season" type="number" aria-label="Season">
-    <input id="week" type="number" min="1" max="18" aria-label="Week">
+    <div class="pick"><label for="season">Season (year)</label>
+      <input id="season" type="number"></div>
+    <div class="pick"><label for="week">Week</label>
+      <input id="week" type="number" min="1" max="18"></div>
     <button class="primary" id="go">Show picks</button>
   </div>
 
@@ -133,6 +138,7 @@ function el(tag, cls, text){
   if (text !== undefined) n.textContent = text;
   return n;
 }
+const weekLine = () => el("p", "weekline", `Week ${$("week").value}, ${$("season").value} season`);
 function status(msg, err){ out.replaceChildren(el("p", "status" + (err ? " err" : ""), msg)); }
 const ctx = () => ({season: $("season").value, week: $("week").value});
 
@@ -209,7 +215,7 @@ async function load(){
     if (tab === "top"){
       status("Running simulations…");
       const rows = await api(`/api/top?season=${season}&week=${week}`);
-      out.replaceChildren(...rows.map(playerRow));
+      out.replaceChildren(weekLine(), ...rows.map(playerRow));
       return;
     }
     const b = leagueBody();
@@ -221,7 +227,7 @@ async function load(){
     status("Loading your leagues and running simulations…");
     const leagues = await api("/api/leagues", b);
     if (!leagues.length) return status("No leagues found for that season.");
-    out.replaceChildren(...leagues.flatMap(lg => [
+    out.replaceChildren(weekLine(), ...leagues.flatMap(lg => [
       el("h2", "", lg.league),
       ...(lg.players.length ? lg.players.map(playerRow)
           : [el("p", "status", "None of your players are playing this week.")]),
