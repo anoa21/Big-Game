@@ -166,6 +166,9 @@ def split(preds, league, table=None):
         else:
             fa = ~tn.isin(league["rostered"] | league["mine"])
         out["fa_ids"] = [i for i in table.index[fa]]
+        out["teams"] = [{"name": t["name"], "mine": t["mine"],
+                         "roster": [i for i in table.index[tn.isin(t["names"])]]}
+                        for t in (league.get("teams") or [])]
         out["roster"] = [{"id": r.player_id, "name": r.name, "position": r.position, "team": r.team}
                          for r in mine_t.itertuples()]
         out["replacement"] = {k: round(v, 1) for k, v in
@@ -190,13 +193,28 @@ def sleeper_leagues(req):
     out, problems = [], []
     for lg in leagues:
         try:
-            r = sleeper.get_my_roster(lg["league_id"], uid)
-            mine = {sleeper.norm(n) for _, n, _ in sleeper.roster_names(r, players)}
-            rostered = sleeper.all_rostered(lg["league_id"], players)
+            rosters = sleeper.get_rosters(lg["league_id"])
+            try:
+                owners = {u["user_id"]: (u.get("metadata") or {}).get("team_name") or u.get("display_name")
+                          for u in sleeper.get_league_users(lg["league_id"])}
+            except Exception:
+                owners = {}                  # team names are a nicety; carry on without them
+            teams, mine, rostered = [], set(), set()
+            for r in rosters:
+                names = {sleeper.norm(players.get(pid, {}).get("full_name") or "") for pid in r.get("players") or []}
+                names.discard("")
+                is_me = r.get("owner_id") == uid or uid in (r.get("co_owners") or [])
+                teams.append({"name": owners.get(r.get("owner_id")) or f"Team {r.get('roster_id')}",
+                              "mine": is_me, "names": names})
+                rostered |= names
+                if is_me:
+                    mine = names
+            if not mine:
+                raise ValueError("no team in this league belongs to that username")
         except Exception as e:
             problems.append(f"{lg.get('name', 'a league')}: {e}")
             continue
-        out.append({"league": lg["name"], "mine": mine, "rostered": rostered,
+        out.append({"league": lg["name"], "mine": mine, "rostered": rostered, "teams": teams,
                     "slots": sleeper.slots_from(lg.get("roster_positions")),
                     "league_id": lg["league_id"]})
     if not out:
@@ -271,6 +289,8 @@ class TradeReq(BaseModel):
     roster: Optional[list[str]] = None
     slots: Optional[dict] = None
     replacement: Optional[dict] = None
+    partner: Optional[list[str]] = None
+    partner_name: Optional[str] = None
 
 
 @app.post("/api/trade")
@@ -289,7 +309,8 @@ def trade(req: TradeReq):
                 if k in ros.POS and isinstance(v, (int, float))}
     try:
         table = ros_table(req.season, req.week)
-        return ros.analyze(table, req.give, req.get, (req.roster or [])[:40], slots, repl)
+        return ros.analyze(table, req.give, req.get, (req.roster or [])[:40], slots, repl,
+                           (req.partner or [])[:40], (req.partner_name or "")[:60] or "Their team")
     except KeyError as e:
         raise HTTPException(400, str(e.args[0]))
     except ValueError as e:
