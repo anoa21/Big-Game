@@ -147,7 +147,7 @@ def injury_report(season, week):
             for r in inj.itertuples()}
 
 
-def enrich(preds, hist_df, season, week, blend=0.5):
+def enrich(preds, hist_df, season, week, blend=0.5, with_props=True):
     """Add simulation odds, point range and injury status to model output."""
     inj = injury_report(season, week)
     hist_df = hist_df.sort_values(["season", "week"])
@@ -170,7 +170,7 @@ def enrich(preds, hist_df, season, week, blend=0.5):
         final = p_model if np.isnan(p_sim) else blend * p_model + (1 - blend) * p_sim
         props = (project_props(games[r.player_id], r.position, f, play, rate_avg,
                                rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
-                 if r.player_id in games else [])
+                 if with_props and r.player_id in games else [])
         d_rank, d_allowed = dtable.get((r.opponent_team, r.position), (None, None))
         rows.append((p_sim, p10, p50, p90, status, injury, play, final, props,
                      d_rank, d_allowed))
