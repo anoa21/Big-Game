@@ -15,7 +15,7 @@ import nflreadpy as nfl
 import model
 import sim
 
-VERSION = "v1"                     # bump when the model changes so old grades are redone
+VERSION = "v2"                     # bump when the model changes so old grades are redone
 STRONG, SOLID = 0.40, 0.20         # same cutoffs as the Strong / Solid / Risky tags
 BUCKETS = [(0, .1), (.1, .2), (.2, .3), (.3, .4), (.4, .5), (.5, 1.01)]
 _state = {}                        # season -> {"weeks": {w: DataFrame}, "building": bool, "error": str, "doing": int}
@@ -36,7 +36,7 @@ def grade_week(stats, season, week):
     seasons = sorted(stats["season"].unique().tolist())
     preds = model.predict_week(seasons, season, week, stats=stats)
     hist = stats[(stats["season"] < season) | (stats["week"] < week)]
-    e = sim.enrich(preds, hist, season, week, with_props=False)
+    e = sim.enrich(preds, hist, season, week, with_props=False, weather=False)   # past forecasts weren't saved
     e = e[e["injury_status"] != "Out"]                       # the app hides players ruled out
     played = stats[(stats["season"] == season) & (stats["week"] == week)] \
         .set_index("player_id")["fantasy_points_ppr"]
