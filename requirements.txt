@@ -5,3 +5,4 @@ scikit-learn
 requests
 fastapi
 uvicorn[standard]
+tzdata
