@@ -95,6 +95,10 @@ h3{font-size:20px;line-height:1.2}
 .who{grid-column:1;align-self:end;font-weight:600;font-size:17px}
 .meta{grid-column:1;align-self:start;color:var(--slate);font-size:14px}
 .meta .inj{color:var(--amber-ink);font-weight:500}
+.matchup{display:block;font-size:13px;margin-top:3px}
+.matchup.good{color:var(--green);font-weight:500}
+.matchup.tough{color:var(--red);font-weight:500}
+.matchup.avg{color:var(--slate)}
 .meta .inj.out{color:var(--red)}
 .right{grid-column:2;grid-row:1 / span 2;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
 .pct{font:400 30px/1 var(--marker)}
@@ -175,7 +179,7 @@ details.more b{font-weight:600}
   </div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. Football is high-variance, so treat all of this as odds, not a promise.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
 </main>
 <div class="tray" aria-hidden="true">
   <svg viewBox="0 0 600 72" xmlns="http://www.w3.org/2000/svg">
@@ -269,6 +273,21 @@ function tagEl(p){
   return t;
 }
 
+/* ---- how the opposing defense ranks against this position ---- */
+const PLURAL = {QB: "QBs", RB: "RBs", WR: "WRs", TE: "TEs"};
+function ordinal(n){
+  const v = n % 100, s = (v >= 11 && v <= 13) ? "th" : ({1: "st", 2: "nd", 3: "rd"}[n % 10] || "th");
+  return n + s;
+}
+function matchupInfo(p){
+  if (p.def_rank == null || !PLURAL[p.position]) return null;
+  const most = p.def_rank <= 16, n = most ? p.def_rank : 33 - p.def_rank;   // 1 = gives up the most
+  const kind = p.def_rank <= 8 ? "good" : p.def_rank >= 25 ? "tough" : "avg";
+  const word = {good: "good matchup", tough: "tough matchup", avg: "average matchup"}[kind];
+  const amount = n === 1 ? (most ? "most" : "fewest") : `${ordinal(n)}-${most ? "most" : "fewest"}`;
+  return {kind, text: `${p.opponent_team} allows the ${amount} points to ${PLURAL[p.position]}, ${word}`};
+}
+
 /* ---- rows ---- */
 function playerRow(p, rank){
   const r = el("div", "row");
@@ -283,6 +302,8 @@ function playerRow(p, rank){
     meta.append(el("span", "inj" + (p.injury_status === "Out" ? " out" : ""),
       p.injury_status + (p.injury ? ` (${p.injury.toLowerCase()})` : "")));
   }
+  const mu = matchupInfo(p);
+  if (mu) meta.append(el("span", "matchup " + mu.kind, mu.text));
   r.append(meta);
 
   const right = el("div", "right");
@@ -290,9 +311,11 @@ function playerRow(p, rank){
   r.append(right);
 
   const hasProps = p.props && p.props.length;
-  if (hasProps || p.floor != null || AI){
+  if (hasProps || p.floor != null || p.def_allowed != null || AI){
     const d = el("details", "more");
     d.append(el("summary", "", "Range and projected stats"));
+    if (p.def_allowed != null && PLURAL[p.position])
+      d.append(el("p", "range", `${p.opponent_team} has allowed ${p.def_allowed.toFixed(1)} fantasy points per game to ${PLURAL[p.position]} over its last 6 games (${ordinal(p.def_rank)} of 32 in points allowed).`));
     if (p.floor != null)
       d.append(el("p", "range", `Likely range: ${Math.round(p.floor)} to ${Math.round(p.ceiling)} fantasy points`));
     if (hasProps){
