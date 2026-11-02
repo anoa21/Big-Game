@@ -83,8 +83,12 @@ def to_records(df):
 
 @app.on_event("startup")
 def warm():
+    """Pre-build this week's picks, but only after the server has been up for
+    a while: small hosts need the port open right away and the warm-up is heavy."""
     s, w = current_week()
-    threading.Thread(target=lambda: predictions(s, w), daemon=True).start()
+    t = threading.Timer(45, lambda: predictions(s, w))
+    t.daemon = True
+    t.start()
 
 
 @app.get("/api/defaults")
