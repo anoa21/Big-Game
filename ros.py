@@ -99,25 +99,28 @@ def replacement_ppg(table, free_agents=None):
     return out
 
 
-def best_lineup(players, slots, repl=None, ref_games=0.0):
+def best_lineup(players, slots, repl=None, ref_games=0.0, with_empty=False):
     """Greedy fill: dedicated slots first, then the most restrictive flex first.
     A slot nobody on the roster can fill is credited at replacement level (you
     would pick up a free agent), so a thin roster isn't punished unfairly."""
     pool = sorted(players, key=lambda p: -p["ros_pts"])
-    used, starters, extra = set(), [], [0.0]
+    used, starters, extra, empty = set(), [], [0.0], []
 
-    def take(elig, n):
+    def take(elig, n, label):
         for _ in range(n):
             c = next((p for p in pool if p["position"] in elig and p["player_id"] not in used), None)
             if c:
                 used.add(c["player_id"]); starters.append(c)
-            elif repl:
-                extra[0] += max(repl.get(pos, 0) for pos in elig) * ref_games
+            else:
+                empty.append(label)
+                if repl:
+                    extra[0] += max(repl.get(pos, 0) for pos in elig) * ref_games
     for pos in POS:
-        take({pos}, slots.get(pos, 0))
+        take({pos}, slots.get(pos, 0), pos)
     for name in ("REC_FLEX", "WRRB_FLEX", "FLEX", "SUPER_FLEX"):
-        take(FLEX_ELIGIBLE[name], slots.get(name, 0))
-    return starters, float(sum(p["ros_pts"] for p in starters) + extra[0])
+        take(FLEX_ELIGIBLE[name], slots.get(name, 0), name.replace("_", " ").title())
+    total = float(sum(p["ros_pts"] for p in starters) + extra[0])
+    return (starters, total, empty) if with_empty else (starters, total)
 
 
 def _clean(d):
@@ -136,7 +139,57 @@ def _row(p, repl):
             "injury": p["injury"], "flag": p["flag"], "value": round(value)}
 
 
-def analyze(table, give_ids, get_ids, roster_ids=None, slots=None, replacement=None):
+def _level(z):
+    return ("good" if z >= 0.8 else "lean_good" if z >= 0.3 else "even" if z > -0.3
+            else "lean_bad" if z > -0.8 else "bad")
+
+
+def _sign(level):
+    return 1 if level in ("good", "lean_good") else -1 if level in ("bad", "lean_bad") else 0
+
+
+def _mutual(mine, theirs):
+    """One plain-English read on whether both managers come out ahead."""
+    m, t = _sign(mine), _sign(theirs)
+    table = {(1, 1): ("Works for both sides", "good"), (1, 0): ("Works for both sides", "good"),
+             (0, 1): ("Works for both sides", "good"), (0, 0): ("Close to even for both of you", "even"),
+             (1, -1): ("Favors you, so expect pushback", "even"), (0, -1): ("Leans your way, so expect pushback", "even"),
+             (-1, 1): ("Favors them, so they will likely say yes", "bad"), (-1, 0): ("Leans their way", "bad"),
+             (-1, -1): ("Hurts both of you", "bad")}
+    text, kind = table[(m, t)]
+    return {"text": text, "kind": kind}
+
+
+def _partner_side(table, partner_ids, give, get, get_ids, slots, repl, sd, name, my_level):
+    """The same trade, seen from the other manager's roster."""
+    roster = [_clean(table.loc[i].to_dict()) for i in partner_ids if i in table.index]
+    if not roster:
+        return None
+    ref = float(table["exp_games"].median())
+    lost = set(get_ids)
+    kept = [p for p in roster if p["player_id"] not in lost]
+    after_roster = kept + [g for g in give if g["player_id"] not in {p["player_id"] for p in kept}]
+    before, tb, eb = best_lineup(roster, slots, repl, ref, True)
+    after, ta, ea = best_lineup(after_roster, slots, repl, ref, True)
+    bi, ai = {p["player_id"] for p in before}, {p["player_id"] for p in after}
+    diff = ta - tb
+    lvl = _level(diff / sd)
+    thin = []
+    for label in set(ea):
+        extra = ea.count(label) - eb.count(label)
+        if extra > 0:
+            thin.append(label)
+    notes = [f"{p['name']} isn't on {name}'s roster, so their numbers may be off."
+             for p in get if p["player_id"] not in {r["player_id"] for r in roster}]
+    return {"name": name, "level": lvl, "diff": round(diff), "range": [round(diff - 1.28 * sd), round(diff + 1.28 * sd)],
+            "lineup": {"before": round(tb), "after": round(ta), "diff": round(diff),
+                       "enters": [p["name"] for p in after if p["player_id"] not in bi],
+                       "leaves": [p["name"] for p in before if p["player_id"] not in ai]},
+            "thin": thin, "notes": notes, "mutual": _mutual(my_level, lvl)}
+
+
+def analyze(table, give_ids, get_ids, roster_ids=None, slots=None, replacement=None,
+            partner_ids=None, partner_name="Their team"):
     missing = [i for i in list(give_ids) + list(get_ids) if i not in table.index]
     if missing:
         raise KeyError("Couldn't find one of those players. Pick them from the search list.")
@@ -168,8 +221,7 @@ def analyze(table, give_ids, get_ids, roster_ids=None, slots=None, replacement=N
         diff = ta - tb
 
     z = diff / sd
-    level = ("good" if z >= 0.8 else "lean_good" if z >= 0.3 else "even" if z > -0.3
-             else "lean_bad" if z > -0.8 else "bad")
+    level = _level(z)
     notes = []
     if roster_ids:
         for p in give:
@@ -184,6 +236,10 @@ def analyze(table, give_ids, get_ids, roster_ids=None, slots=None, replacement=N
                          + (f" ({str(p['injury']).lower()})." if p["injury"] else "."))
         if p["bye"] is not None:
             notes.append(f"{who}'s team has its bye in week {int(p['bye'])}.")
+    partner = None
+    if partner_ids:
+        partner = _partner_side(table, partner_ids, give, get, get_ids, slots or DEFAULT_SLOTS, repl,
+                                sd, partner_name, level)
     return {"give": give_rows, "get": get_rows, "lineup": lineup, "level": level,
             "diff": round(diff), "range": [round(diff - 1.28 * sd), round(diff + 1.28 * sd)],
-            "basis": "lineup" if lineup else "value", "notes": notes}
+            "basis": "lineup" if lineup else "value", "notes": notes, "partner": partner}
