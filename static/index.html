@@ -181,6 +181,21 @@ details.more b{font-weight:600}
 .cmp .up{color:var(--green);font-weight:600}
 .cmp .down{color:var(--red);font-weight:600}
 .lgpick{margin:8px 0 4px;max-width:100%}
+.acctbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:-4px 0 14px;font-size:14px;color:var(--slate)}
+.acctbar button{min-height:40px;font-size:14px}
+.authpanel{background:var(--panel);border:1.5px solid var(--ink);border-radius:8px 10px 9px 11px / 10px 8px 11px 9px;padding:14px;margin:0 0 16px}
+.authpanel form{margin:0}
+.authpanel input{width:100%;margin:6px 0}
+.authpanel label{display:block;font-size:14px;font-weight:500;color:var(--slate);margin-top:6px}
+.authpanel h3{margin:4px 0 8px}
+.modes{display:flex;gap:16px;margin:0 0 8px;border-bottom:1.5px solid var(--line)}
+.modes button{border:0;border-radius:0;box-shadow:none;background:none;padding:8px 2px;margin-bottom:-1.5px;color:var(--slate);border-bottom:3px solid transparent;font-weight:600}
+.modes button[aria-pressed=true]{color:var(--ink);border-bottom-color:var(--blue)}
+.codebox{font:600 19px/1.5 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.5px;background:var(--chalk,#f1f3f0);border:2px dashed var(--ink);border-radius:6px;padding:12px;margin:10px 0;word-break:break-all;user-select:all}
+.danger{background:var(--red);color:#fff;border-color:var(--red)}
+.savedbox{margin:0 0 12px}
+.saveprompt{margin:6px 0 10px;font-size:14px}
+.savedrow{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
 .versus{font-weight:600;margin:8px 0 0}
 .bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
   font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
@@ -251,6 +266,8 @@ details.more b{font-weight:600}
     <h1>Big Game Fantasy</h1>
   </div>
   <p class="sub">Your lineup, with the odds each player has a big game this week.</p>
+  <div id="account-bar" class="acctbar"></div>
+  <div id="auth-panel" class="authpanel" style="display:none"></div>
 
   <div class="controls">
     <div class="pick"><label for="season">Season (year)</label>
@@ -273,6 +290,7 @@ details.more b{font-weight:600}
   </div>
 
   <div id="mine-controls">
+    <div id="saved-box"></div>
     <div class="controls">
       <div class="pick"><label for="platform">Fantasy site</label>
         <select id="platform">
@@ -499,8 +517,8 @@ function playerRow(p, rank){
   return r;
 }
 
-async function api(path, body){
-  const r = await fetch(path, body ? {method: "POST",
+async function api(path, body, method){
+  const r = await fetch(path, method ? {method} : body ? {method: "POST",
     headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
   if (!r.ok){
     const d = await r.json().catch(() => ({}));
@@ -550,6 +568,7 @@ function renderLeagues(){
   } else {
     parts.push(el("div", "groupnote", LEAGUES[0].league));
   }
+  const sp = savePrompt(); if (sp) parts.push(sp);
   parts.push(lineup(LEAGUES[LEAGUE_IDX]));
   out.replaceChildren(...parts);
 }
@@ -732,6 +751,150 @@ async function analyzeTrade(){
   try { renderTrade(await api("/api/trade", body)); }
   catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
   finally { btn.disabled = false; }
+}
+
+/* ---- accounts: sign in, and keep leagues between visits and devices ---- */
+const ACCT = {user: null, leagues: [], persistent: true, open: false, mode: "signin", view: "form", code: null, err: "", busy: false};
+
+async function loadAccount(){
+  try { applyAccount(await api("/api/auth/me")); } catch (e){ /* accounts are optional; the app works without them */ }
+}
+function applyAccount(j){
+  ACCT.user = j.user || null; ACCT.leagues = j.leagues || []; ACCT.persistent = j.persistent !== false;
+  renderAccountBar(); renderAuthPanel(); renderSaved();
+}
+function acctOpen(on){ ACCT.open = on; ACCT.err = ""; renderAuthPanel(); const ap = document.getElementById("auth-panel"); if (on && ap.scrollIntoView) ap.scrollIntoView({block: "nearest"}); }
+
+function renderAccountBar(){
+  const bar = $("account-bar"); bar.replaceChildren();
+  if (ACCT.user){
+    bar.append(el("span", "", `Signed in as ${ACCT.user.username}`));
+    const b = el("button", "", ACCT.open ? "Close" : "My account"); b.onclick = () => acctOpen(!ACCT.open); bar.append(b);
+  } else {
+    const b = el("button", "", ACCT.open ? "Close" : "Sign in or create account"); b.onclick = () => acctOpen(!ACCT.open); bar.append(b);
+    bar.append(el("span", "", "to save your leagues"));
+  }
+}
+
+function field(label, type, id, auto){
+  const wrap = document.createDocumentFragment(), l = el("label", "", label); l.htmlFor = id;
+  const i = el("input"); i.type = type; i.id = id; i.name = id.replace("a-", ""); i.autocomplete = auto; i.required = true;
+  if (type === "text") { i.autocapitalize = "none"; i.spellcheck = false; }
+  wrap.append(l, i); return wrap;
+}
+
+async function authCall(path, body, after){
+  if (ACCT.busy) return; ACCT.busy = true; ACCT.err = ""; if (body && body.username) ACCT.lastUser = body.username; renderAuthPanel();
+  try { const j = await api(path, body); ACCT.busy = false; after(j); }
+  catch (e){ ACCT.busy = false; ACCT.err = e.message; renderAuthPanel(); }
+}
+
+function renderAuthPanel(){
+  const p = $("auth-panel"); p.style.display = ACCT.open ? "" : "none"; p.replaceChildren();
+  if (!ACCT.open) return;
+  const err = () => ACCT.err ? [el("p", "status err", ACCT.err)] : [];
+  if (!ACCT.persistent) p.append(el("p", "groupnote", "Heads up: this site isn\u2019t connected to a permanent database yet, so accounts can disappear when it restarts."));
+
+  if (ACCT.code){                                          // shown once, right after sign-up or a reset
+    p.append(heading("h3", "Save your recovery code"));
+    p.append(el("p", "", "This is the only way to reset your password if you forget it. We can\u2019t look it up or email it to you. Copy it somewhere safe, like a password manager or a note."));
+    p.append(el("div", "codebox", ACCT.code));
+    const copy = el("button", "", "Copy the code"); copy.onclick = async () => { try { await navigator.clipboard.writeText(ACCT.code); copy.textContent = "Copied"; } catch (e){ copy.textContent = "Select it and copy by hand"; } };
+    const ok = el("label", ""); const cb = el("input"); cb.type = "checkbox"; cb.style.cssText = "width:auto;margin:0 8px 0 0;min-height:0"; ok.append(cb, document.createTextNode("I\u2019ve saved my recovery code"));
+    const go = el("button", "primary", "Continue"); go.disabled = true; cb.onchange = () => { go.disabled = !cb.checked; };
+    go.onclick = () => { ACCT.code = null; renderAuthPanel(); };
+    p.append(copy, el("div"), ok, go); return;
+  }
+
+  if (ACCT.user){
+    p.append(heading("h3", `Signed in as ${ACCT.user.username}`));
+    p.append(el("p", "groupnote", ACCT.leagues.length ? "Your saved leagues:" : "You haven\u2019t saved any leagues yet. Load a league under My teams and tap \u201cSave this league.\u201d"));
+    ACCT.leagues.forEach(l => {
+      const row = el("div", "savedrow"); row.append(el("span", "", l.label));
+      const rm = el("button", "link", "Remove"); rm.onclick = async () => { try { applyAccount({user: ACCT.user, leagues: (await api("/api/me/leagues/" + l.id, null, "DELETE")).leagues, persistent: ACCT.persistent}); } catch (e){ ACCT.err = e.message; renderAuthPanel(); } };
+      row.append(rm); p.append(row);
+    });
+    const out = el("button", "", "Sign out"); out.style.marginTop = "12px";
+    out.onclick = () => authCall("/api/auth/logout", {}, () => { ACCT.open = false; ACCT.mode = "signin"; ACCT.view = "form"; applyAccount({user: null, leagues: [], persistent: ACCT.persistent}); });
+    p.append(out, ...err());
+    const more = el("details"); more.append(el("summary", "", "Change password or delete account"));
+    const pf = el("form"); pf.append(field("Current password", "password", "a-cur", "current-password"), field("New password (8 or more characters)", "password", "a-new", "new-password"));
+    const chg = el("button", "primary", "Change password"); chg.type = "submit"; pf.append(chg);
+    pf.onsubmit = e => { e.preventDefault(); authCall("/api/auth/password", {current_password: $("a-cur").value, new_password: $("a-new").value}, () => { ACCT.err = ""; pf.reset(); chg.textContent = "Password changed"; }); };
+    const df = el("form"); df.append(el("p", "groupnote", "Deleting removes your account and every saved league for good."), field("Your password", "password", "a-del", "current-password"));
+    const del = el("button", "danger", "Delete my account"); del.type = "submit"; df.append(del);
+    df.onsubmit = e => { e.preventDefault(); if (!confirm("Delete your account and saved leagues? This can\u2019t be undone.")) return; authCall("/api/auth/delete", {password: $("a-del").value}, () => { ACCT.open = false; ACCT.mode = "signin"; ACCT.view = "form"; applyAccount({user: null, leagues: [], persistent: ACCT.persistent}); }); };
+    more.append(pf, df); p.append(more); return;
+  }
+
+  if (ACCT.view === "recover"){
+    p.append(heading("h3", "Reset your password"));
+    const f = el("form"); f.append(field("Username", "text", "a-user", "username"), field("Recovery code from sign-up", "text", "a-rc", "off"), field("New password (8 or more characters)", "password", "a-new", "new-password"));
+    const go = el("button", "primary", ACCT.busy ? "Working\u2026" : "Reset password"); go.type = "submit"; go.disabled = ACCT.busy;
+    f.append(go); f.onsubmit = e => { e.preventDefault(); authCall("/api/auth/recover", {username: $("a-user").value, recovery_code: $("a-rc").value, new_password: $("a-new").value}, j => { ACCT.code = j.recovery_code; applyAccount(j); }); };
+    const back = el("button", "link", "Back to sign in"); back.onclick = () => { ACCT.view = "form"; ACCT.err = ""; renderAuthPanel(); };
+    p.append(f, ...err(), back); return;
+  }
+
+  const modes = el("div", "modes");
+  [["signin", "Sign in"], ["signup", "Create account"]].forEach(([m, t]) => { const b = el("button", "", t); b.type = "button"; b.setAttribute("aria-pressed", ACCT.mode === m); b.onclick = () => { ACCT.mode = m; ACCT.err = ""; renderAuthPanel(); }; modes.append(b); });
+  p.append(modes);
+  const signup = ACCT.mode === "signup", f = el("form");
+  f.append(field("Username", "text", "a-user", "username"), field(signup ? "Password (8 or more characters)" : "Password", "password", "a-pass", signup ? "new-password" : "current-password"));
+  const go = el("button", "primary", ACCT.busy ? "Working\u2026" : signup ? "Create account" : "Sign in"); go.type = "submit"; go.disabled = ACCT.busy; go.style.marginTop = "8px";
+  f.append(go);
+  f.onsubmit = e => { e.preventDefault(); authCall(signup ? "/api/auth/signup" : "/api/auth/login", {username: $("a-user").value.trim(), password: $("a-pass").value},
+    j => { if (j.recovery_code) ACCT.code = j.recovery_code; applyAccount(j);
+           if (!signup && j.leagues && j.leagues.length){ ACCT.open = false; renderAccountBar(); renderAuthPanel(); loadSaved(preferredSaved(j.leagues)); } }); };
+  const uf = f.querySelector("#a-user"); if (uf && ACCT.lastUser) uf.value = ACCT.lastUser;       // don't make people retype it after a typo
+  p.append(f, ...err());
+  if (!signup){ const fg = el("button", "link", "Forgot your password?"); fg.onclick = () => { ACCT.view = "recover"; ACCT.err = ""; renderAuthPanel(); }; p.append(fg); }
+  p.append(el("p", "groupnote", "We store your username, a scrambled copy of your password, and the leagues you choose to save. We never store your ESPN cookies or any fantasy-site password, and we don\u2019t ask for an email address. You can delete your account whenever you like."));
+}
+
+/* saved leagues: one tap to open them, and a prompt to save the one you just loaded */
+const saveKey = (platform, payload) => platform === "sleeper" ? "sleeper:" + String(payload.username || "").toLowerCase()
+  : platform === "espn" ? "espn:" + ((/leagueId=(\d+)/.exec(payload.url || "") || [])[1]) + ":" + ((/teamId=(\d+)/.exec(payload.url || "") || [])[1])
+  : "manual:" + String(payload.label || "My typed roster").toLowerCase();
+const savedKeys = () => new Set(ACCT.leagues.map(l => saveKey(l.platform, {...l.payload, label: l.label})));
+
+function renderSaved(){
+  const box = $("saved-box"); box.replaceChildren(); box.className = "";
+  if (!ACCT.user || !ACCT.leagues.length) return;
+  box.className = "savedbox"; box.append(el("p", "groupnote", "Your saved leagues:"));
+  const row = el("div", "quick");
+  ACCT.leagues.forEach(l => { const b = el("button", "qbtn", l.label); b.onclick = () => loadSaved(l); row.append(b); });
+  box.append(row);
+}
+
+function fillFrom(l){
+  const pl = l.payload || {};
+  $("platform").value = l.platform; showPlatform();
+  if (l.platform === "sleeper") $("user").value = pl.username || "";
+  if (l.platform === "espn") $("espn-url").value = pl.url || "";
+  if (l.platform === "manual") $("manual-text").value = (pl.players || []).join("\n");
+}
+const preferredSaved = ls => { let id = null; try { id = localStorage.getItem("bg_last_saved"); } catch (e){} return ls.find(l => String(l.id) === id) || ls[0]; };
+function loadSaved(l){ try { localStorage.setItem("bg_last_saved", String(l.id)); } catch (e){} fillFrom(l); setTab("mine"); }
+
+function currentSavable(){
+  const b = leagueBody(), lg = curLeague();
+  if (b.platform === "sleeper" && b.username) return {platform: "sleeper", label: `Sleeper: ${b.username}`, payload: {username: b.username}};
+  if (b.platform === "espn" && b.url) return {platform: "espn", label: (lg && lg.league) || "ESPN league", payload: {url: b.url}};   // never the cookies
+  if (b.platform === "manual" && b.players.some(x => x.trim())) return {platform: "manual", label: "My typed roster", payload: {players: b.players}};
+  return null;
+}
+function savePrompt(){
+  const s = currentSavable(); if (!s) return null;
+  const wrap = el("div", "saveprompt");
+  if (!ACCT.user){
+    const b = el("button", "link", "Sign in to save this league and open it on any device"); b.onclick = () => { acctOpen(true); window.scrollTo({top: 0, behavior: "smooth"}); };
+    wrap.append(b); return wrap;
+  }
+  if (savedKeys().has(saveKey(s.platform, {...s.payload, label: s.label}))){ wrap.append(el("span", "groupnote", "Saved to your account.")); return wrap; }
+  const b = el("button", "link", "Save this league to my account");
+  b.onclick = async () => { b.disabled = true; try { const j = await api("/api/me/leagues", s); applyAccount({user: ACCT.user, leagues: j.leagues, persistent: ACCT.persistent}); wrap.replaceChildren(el("span", "groupnote", "Saved to your account.")); } catch (e){ b.disabled = false; b.textContent = e.message; } };
+  wrap.append(b); return wrap;
 }
 
 /* ---- tabs: keep the active one in view, and hint when there is more to scroll to ---- */
@@ -1384,6 +1547,8 @@ buildRecordPanel();
   if (y){ $("platform").value = "yahoo"; history.replaceState({}, "", "/"); }
   showPlatform();
   if (y === "failed") $("yahoo-msg").textContent = "Yahoo sign-in didn't finish. Try again.";
+  await loadAccount();
+  if (ACCT.user && ACCT.leagues.length && !$("user").value && !$("espn-url").value && !$("manual-text").value) fillFrom(preferredSaved(ACCT.leagues));
   setTab("mine");   // always open on the league search bar
   tabHint();
 })();
