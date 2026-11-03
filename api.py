@@ -21,7 +21,11 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import accounts
+try:
+    import accounts                      # sign-in and saved leagues; needs sqlalchemy (see requirements.txt)
+except ImportError as e:                 # never let a missing package take the whole site down
+    accounts = None
+    print("Accounts are switched off:", e)
 import context
 import insight
 import leagueview
@@ -36,7 +40,8 @@ import sim
 import sleeper
 
 app = FastAPI(title="Big Game")
-app.include_router(accounts.router)
+if accounts is not None:
+    app.include_router(accounts.router)
 STATIC = Path(__file__).parent / "static"
 BASE_TTL, ENRICH_TTL = 6 * 3600, 30 * 60   # model every 6h, injuries every 30min
 _base, _enriched, _lock = {}, {}, threading.Lock()
