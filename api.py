@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import accounts
 import context
 import insight
 import leagueview
@@ -35,6 +36,7 @@ import sim
 import sleeper
 
 app = FastAPI(title="Big Game")
+app.include_router(accounts.router)
 STATIC = Path(__file__).parent / "static"
 BASE_TTL, ENRICH_TTL = 6 * 3600, 30 * 60   # model every 6h, injuries every 30min
 _base, _enriched, _lock = {}, {}, threading.Lock()
@@ -472,7 +474,8 @@ def playbook_view(season: int, week: int, player_id: str):
     brief = {k: d.get(k) for k in ("player_id", "name", "position", "team", "opponent", "on_slate", "season", "week")}
     if d.get("on_slate"):
         brief["big_game"] = d["odds"]["big_game"]
-    return {"player": brief, "sections": sections, "confidence": conf, "ai": playbook.ai_enabled()}
+        brief["floor"], brief["median"], brief["ceiling"] = d["odds"]["floor"], d["odds"]["median"], d["odds"]["ceiling"]
+    return {"player": brief, "sections": sections, "confidence": conf, "glance": playbook.glance(d), "ai": playbook.ai_enabled()}
 
 
 class AskReq(BaseModel):
