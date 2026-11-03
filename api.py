@@ -24,6 +24,7 @@ import insight
 import matchup
 import model
 import nextup
+import playbook
 import providers
 import record
 import ros
@@ -400,6 +401,76 @@ def weather(season: int, week: int):
         raise HTTPException(502, f"Couldn't load the stadium and weather details: {e}")
     _wx[key] = (time.time(), games)
     return games
+
+
+# ------------------------------------------------------- coach's playbook --
+_asks = {}                                 # visitor -> recent AI request times (cost protection)
+
+
+def _visitor(request):
+    fwd = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    return fwd or (request.client.host if request.client else "unknown")
+
+
+def _film(season, week, player_id):
+    """The dossier and plain breakdown, always rebuilt on the server from the app's own data."""
+    preds = predictions(season, week)
+    table = ros_table(season, week)
+    key = (season, week)
+    try:
+        ctx = context.game_context(season, week)
+    except Exception:
+        ctx = {}
+    d = playbook.build_dossier(player_id, season, week, preds, _base[key][2], table, _nu.get(key),
+                               ctx, playbook.injury_frame(season, week))
+    sections, conf = playbook.breakdown(d)
+    return d, sections, conf
+
+
+@app.get("/api/playbook")
+def playbook_view(season: int, week: int, player_id: str):
+    try:
+        d, sections, conf = _film(season, week, player_id)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't pull up the film: {e}")
+    if not d.get("name"):
+        raise HTTPException(404, "Couldn't find that player.")
+    brief = {k: d.get(k) for k in ("player_id", "name", "position", "team", "opponent", "on_slate", "season", "week")}
+    if d.get("on_slate"):
+        brief["big_game"] = d["odds"]["big_game"]
+    return {"player": brief, "sections": sections, "confidence": conf, "ai": playbook.ai_enabled()}
+
+
+class AskReq(BaseModel):
+    season: int
+    week: int
+    player_id: str
+    question: Optional[str] = None
+
+
+@app.post("/api/playbook/ask")
+def playbook_ask(req: AskReq, request: Request):
+    if not playbook.ai_enabled():
+        raise HTTPException(503, "The AI coach isn't turned on for this site.")
+    who, now = _visitor(request), time.time()
+    recent = [t for t in _asks.get(who, []) if now - t < 600]
+    if len(recent) >= 6:
+        raise HTTPException(429, "That's a lot of questions at once. Give the coach a few minutes.")
+    _asks[who] = recent + [now]
+    try:
+        d, sections, _ = _film(req.season, req.week, req.player_id)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't pull up the film: {e}")
+    if not d.get("on_slate"):
+        raise HTTPException(400, d.get("reason") or "He isn't on this week's slate.")
+    try:
+        return playbook.ask(d, sections, req.question or "")
+    except RuntimeError as e:
+        raise HTTPException(429, str(e))
+    except (ValueError, KeyError):
+        raise HTTPException(502, "The coach had trouble putting that into words. Try again.")
+    except requests.RequestException:
+        raise HTTPException(502, "Couldn't reach the AI coach right now.")
 
 
 @app.get("/api/nextup")
