@@ -15,53 +15,102 @@ ESPN = ("https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/"
         "seasons/{season}/segments/0/leagues/{lid}")
 
 
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/124.0 Safari/537.36",
+           "Accept": "application/json", "Referer": "https://fantasy.espn.com/"}
+
+
 def parse_espn_url(url):
     lid = re.search(r"leagueId=(\d+)", url or "")
     tid = re.search(r"teamId=(\d+)", url or "")
+    sid = re.search(r"seasonId=(\d{4})", url or "")
     if not lid:
-        raise ValueError("Paste the link from your ESPN league page "
-                         "(it contains leagueId=...).")
-    return lid.group(1), int(tid.group(1)) if tid else None
+        raise ValueError("Paste the link from your ESPN team page. It should contain leagueId= and teamId= "
+                         "(open your team on fantasy.espn.com and copy the address bar).")
+    return lid.group(1), int(tid.group(1)) if tid else None, int(sid.group(1)) if sid else None
+
+
+def _cookie(value, braces=False):
+    v = (value or "").strip().strip("\"'")
+    if braces and v and not v.startswith("{"):
+        v = "{" + v.strip("{}") + "}"
+    return v
 
 
 def espn_league(url, season, espn_s2=None, swid=None):
-    lid, team_id = parse_espn_url(url)
-    cookies = {}
-    if espn_s2 and swid:
-        cookies = {"espn_s2": espn_s2.strip(), "SWID": swid.strip()}
-    r = requests.get(ESPN.format(season=season, lid=lid),
-                     params=[("view", "mRoster"), ("view", "mTeam"),
-                             ("view", "mSettings")],
-                     cookies=cookies, timeout=30)
+    lid, team_id, link_season = parse_espn_url(url)
+    season = link_season or season                    # the season in the link wins over the box
+    s2, sw = _cookie(espn_s2), _cookie(swid, braces=True)
+    cookies = {"espn_s2": s2, "SWID": sw} if s2 and sw else {}
+    try:
+        r = requests.get(ESPN.format(season=season, lid=lid), headers=HEADERS, cookies=cookies, timeout=30,
+                         params=[("view", "mRoster"), ("view", "mTeam"), ("view", "mSettings")])
+    except requests.Timeout:
+        raise ValueError("ESPN took too long to answer. Try again in a minute.")
+    except requests.RequestException:
+        raise ValueError("Couldn't reach ESPN from our server. Try again in a minute, or type your roster by hand.")
     if r.status_code in (401, 403):
-        raise PermissionError("This ESPN league is private. Add your espn_s2 "
-                              "and SWID cookies to connect it.")
-    r.raise_for_status()
+        if cookies:
+            raise PermissionError("ESPN rejected the cookies. Copy espn_s2 and SWID again while you're logged in to "
+                                  "ESPN Fantasy (SWID looks like {XXXXXXXX-XXXX-...} with the curly braces). "
+                                  "Or type your roster by hand.")
+        raise PermissionError("This ESPN league is private. Add your espn_s2 and SWID cookies, which only a computer "
+                              "can copy, or choose \"Type my roster\" to enter your players by hand.")
+    if r.status_code == 404:
+        raise ValueError(f"ESPN couldn't find league {lid} for the {season} season. Check the leagueId in your link "
+                         "and the Season box.")
+    if r.status_code >= 400:
+        raise ValueError(f"ESPN answered with an error ({r.status_code}). It may be busy or blocking requests. "
+                         "Try again in a few minutes, or type your roster by hand.")
     try:
         data = r.json()
     except ValueError:
-        raise PermissionError("ESPN did not return league data. If the league "
-                              "is private, add your cookies.")
-    if team_id is None and swid:
+        raise PermissionError("ESPN sent back a web page instead of league data. That usually means the league is "
+                              "private (add your cookies) or ESPN is blocking the request. You can also type your "
+                              "roster by hand.")
+    if not isinstance(data, dict) or not data.get("teams"):
+        raise ValueError("ESPN answered, but without any team rosters. The league may be private, or the season may "
+                         "be wrong. You can type your roster by hand instead.")
+    if team_id is None and sw:
         for t in data.get("teams", []):
-            if swid.strip().lower() in [o.lower() for o in t.get("owners", [])]:
+            if sw.lower() in [o.lower() for o in t.get("owners", [])]:
                 team_id = t["id"]
     if team_id is None:
-        raise ValueError("Your link needs teamId=... (open your team page "
-                         "on ESPN and copy that link).")
+        raise ValueError("Your link needs teamId=... Open your own team page on ESPN (the one that shows your "
+                         "roster) and copy that link.")
+    if team_id not in [t.get("id") for t in data["teams"]]:
+        raise ValueError(f"Team {team_id} isn't in league {lid}. Copy the link from your own team page.")
     mine, rostered, teams = set(), set(), []
     for t in data.get("teams", []):
         names = set()
         for e in (t.get("roster") or {}).get("entries", []):
-            name = e["playerPoolEntry"]["player"]["fullName"]
+            name = (((e.get("playerPoolEntry") or {}).get("player")) or {}).get("fullName")
+            if not name:
+                continue
             names.add(norm(name))
             rostered.add(norm(name))
             if t["id"] == team_id:
                 mine.add(norm(name))
         label = t.get("name") or f"{t.get('location', '')} {t.get('nickname', '')}".strip() or f"Team {t['id']}"
         teams.append({"name": label, "mine": t["id"] == team_id, "names": names})
+    if not mine:
+        raise ValueError("We found your team, but ESPN didn't list any players on it. Try again, or type your roster by hand.")
     return {"league": (data.get("settings") or {}).get("name", "ESPN league"),
             "mine": mine, "rostered": rostered, "available": None, "teams": teams}
+
+
+def manual_league(lines):
+    """A roster typed by hand: one player per line. Works for any fantasy site."""
+    typed, seen = [], set()
+    for raw in lines or []:
+        s = re.sub(r"^\s*(?:[-*\u2022]|\d+[.)])\s*", "", str(raw))
+        s = re.split(r",|\(|\s+[-\u2013\u2014]\s+|\s{2,}", s)[0].strip()      # keeps hyphenated names whole
+        if len(s) >= 3 and norm(s) not in seen:
+            seen.add(norm(s)); typed.append(s)
+    if not typed:
+        raise ValueError("Type at least one player, one per line.")
+    return {"league": "My team (typed in)", "mine": {norm(s) for s in typed}, "rostered": set(), "available": None,
+            "teams": [], "manual": True, "typed": typed[:40]}
 
 
 # --------------------------------------------------------------- Yahoo ----
