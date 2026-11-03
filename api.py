@@ -149,13 +149,16 @@ class LeagueReq(BaseModel):
     url: Optional[str] = None
     espn_s2: Optional[str] = None
     swid: Optional[str] = None
+    players: Optional[list[str]] = None
 
 
 def split(preds, league, table=None):
     """Your players, plus the best free agents in this league."""
     mine = preds[preds["player_display_name"].map(sleeper.norm).isin(league["mine"])]
     names = preds["player_display_name"].map(sleeper.norm)
-    if league.get("available") is not None:
+    if league.get("manual"):
+        free = preds.iloc[0:0]                          # we can't see the rest of the league
+    elif league.get("available") is not None:
         free = preds[names.isin(league["available"])]
     else:
         free = preds[~names.isin(league["rostered"] | league["mine"])]
@@ -166,7 +169,9 @@ def split(preds, league, table=None):
     if table is not None and len(table):        # what the trade analyzer needs
         tn = table["name"].map(sleeper.norm)
         mine_t = table[tn.isin(league["mine"])].sort_values("ros_pts", ascending=False)
-        if league.get("available") is not None:
+        if league.get("manual"):
+            fa = tn.isin(set())                         # nobody counts as a free agent
+        elif league.get("available") is not None:
             fa = tn.isin(league["available"])
         else:
             fa = ~tn.isin(league["rostered"] | league["mine"])
@@ -178,6 +183,10 @@ def split(preds, league, table=None):
                          for r in mine_t.itertuples()]
         out["replacement"] = {k: round(v, 1) for k, v in
                               ros.replacement_ppg(table, set(table.index[fa])).items()}
+    if league.get("manual"):
+        known = set(table["name"].map(sleeper.norm)) if table is not None else set()
+        out["manual"] = True
+        out["unmatched"] = [t for t in league.get("typed", []) if sleeper.norm(t) not in known]
     return out
 
 
@@ -254,6 +263,8 @@ def leagues(req: LeagueReq, request: Request):
             found = sleeper_leagues(req)
         elif req.platform == "espn":
             found = [providers.espn_league(req.url, req.season, req.espn_s2, req.swid)]
+        elif req.platform == "manual":
+            found = [providers.manual_league((req.players or [])[:60])]
         elif req.platform == "yahoo":
             found = yahoo_leagues(request)
         else:
