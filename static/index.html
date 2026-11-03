@@ -465,6 +465,22 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 #weekbar{flex-wrap:wrap;gap:8px 10px}
 #weekbar input[type=number]{width:70px}
 .row.withpic .rowpic{align-self:start;margin-top:2px}
+
+/* player pictures as cutouts: no circle, no colour behind a real photo (the initials circle is only the fallback) */
+.av.has-pic{background:none !important;box-shadow:none !important;border-radius:0;overflow:visible;color:transparent;font-size:0 !important}
+.av.has-pic img{object-fit:contain;object-position:50% 100%;background:none}
+.tile .av.has-pic{width:66px !important;height:66px !important}
+.row.withpic .rowpic.has-pic{width:60px !important;height:60px !important}
+.pbhero{align-items:flex-end;padding:14px 16px 0 8px;min-height:116px}
+.pbhero > div:last-child{padding-bottom:16px}
+.pbhero .av.has-pic{width:128px !important;height:112px !important;margin-bottom:0}
+
+.av.has-pic.soft{border-radius:14px;overflow:hidden}
+.av.has-pic.soft img{object-fit:cover;object-position:50% 18%}
+.row.withpic .rowpic.has-pic{align-self:start;margin-top:2px}
+.pbhero .av:not(.has-pic){margin-bottom:16px}
+#weekbar input#season{width:90px}
+#weekbar input#week{width:66px}
 </style>
 </head>
 <body>
@@ -1174,12 +1190,58 @@ function navRow(ic, title, sub, onclick){
   b.append(i, t, el("span", "chev", "\u203a")); b.onclick = onclick; return b;
 }
 let HEAD = {base: "", ids: {}};
+/* Clear a plain background from a photo that has one. Photos that are already cutouts, or whose background is not a single flat
+   colour, are left exactly as they are. Needs the picture server to allow reading its pixels; if it doesn't, the photo is shown as is. */
+function cleanBackground(img){
+  const W0 = img.naturalWidth, H0 = img.naturalHeight; if (!W0 || !H0) return null;
+  const s = Math.min(1, 260 / Math.max(W0, H0)), w = Math.max(1, Math.round(W0 * s)), h = Math.max(1, Math.round(H0 * s));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d", {willReadFrequently: true}); x.drawImage(img, 0, 0, w, h);
+  const id = x.getImageData(0, 0, w, h), d = id.data;
+  let clear = 0; for (let i = 3; i < d.length; i += 4) if (d[i] < 200) clear++;
+  if (clear / (w * h) > 0.04) return {kind: "cutout"};                  // already a cutout, leave it exactly as it is
+  const at = (px, py) => (py * w + px) * 4, edge = [];
+  for (let px = 0; px < w; px++) edge.push(at(px, 0));
+  for (let py = 0; py < h * 0.8; py++) edge.push(at(0, py), at(w - 1, py));   // top, left and right edges; the bottom is where the shoulders sit
+  const med = k => { const v = edge.map(i => d[i + k]).sort((m, n) => m - n); return v[v.length >> 1]; };
+  const bg = [med(0), med(1), med(2)], dist = i => Math.hypot(d[i] - bg[0], d[i + 1] - bg[1], d[i + 2] - bg[2]), TOL = 30;
+  if (edge.filter(i => dist(i) < TOL).length / edge.length < 0.9) return {kind: "boxed"};   // not one flat colour: we can't cut it out cleanly
+  const seen = new Uint8Array(w * h), stack = [];
+  edge.forEach(i => { const q = i >> 2; if (dist(i) < TOL && !seen[q]){ seen[q] = 1; stack.push(q); } });
+  while (stack.length){
+    const q = stack.pop(), px = q % w, py = (q / w) | 0;
+    for (const [nx, ny] of [[px + 1, py], [px - 1, py], [px, py + 1], [px, py - 1]]){
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const r = ny * w + nx; if (!seen[r] && dist(r * 4) < TOL){ seen[r] = 1; stack.push(r); }
+    }
+  }
+  let gone = 0; for (let q = 0; q < w * h; q++) if (seen[q]) gone++;
+  if (gone / (w * h) < 0.08 || gone / (w * h) > 0.85) return {kind: "boxed"};   // nothing to clear, or it ate the player
+  for (let q = 0; q < w * h; q++) if (seen[q]) d[q * 4 + 3] = 0;
+  for (let py = 0; py < h; py++) for (let px = 0; px < w; px++){        // soften the cut edge a little
+    const q = py * w + px; if (seen[q]) continue;
+    if ((px > 0 && seen[q - 1]) || (px < w - 1 && seen[q + 1]) || (py > 0 && seen[q - w]) || (py < h - 1 && seen[q + w])) d[q * 4 + 3] = Math.min(d[q * 4 + 3], 140);
+  }
+  x.putImageData(id, 0, 0); return {kind: "cleaned", url: c.toDataURL("image/png")};
+}
+const CUT = new Map();
+const CAN_PROBE = (() => { try { return !!document.createElement("canvas").getContext("2d"); } catch (e){ return false; } })();
 function addPic(a){
   const u = a.dataset.pid && HEAD.ids[a.dataset.pid];
   if (!u || a.querySelector("img")) return;
-  const im = document.createElement("img"); im.alt = ""; im.loading = "lazy"; im.decoding = "async"; im.referrerPolicy = "no-referrer";
-  im.onerror = () => im.remove();                       // no picture? the initials underneath show instead
-  im.src = HEAD.base + u; a.append(im);
+  const src = HEAD.base + u, im = document.createElement("img");
+  im.alt = ""; im.loading = "lazy"; im.decoding = "async"; im.referrerPolicy = "no-referrer"; a.append(im);
+  // cutouts (already see-through, or cleaned) stand free; anything with a box behind it gets softly rounded corners instead
+  const show = (s, kind) => { im.onload = () => { a.classList.add("has-pic"); if (kind === "boxed" || kind === "unknown") a.classList.add("soft"); }; im.onerror = () => im.remove(); im.src = s; };
+  if (!CAN_PROBE){ show(src, "unknown"); return; }
+  if (CUT.has(src)){ const c = CUT.get(src); show(c.url, c.kind); return; }
+  const probe = new Image(); probe.crossOrigin = "anonymous"; probe.referrerPolicy = "no-referrer";
+  probe.onload = () => {
+    let res = {kind: "unknown"}; try { res = cleanBackground(probe) || res; } catch (e){}
+    const c = {url: res.url || src, kind: res.kind}; CUT.set(src, c); show(c.url, c.kind);
+  };
+  probe.onerror = () => { const c = {url: src, kind: "unknown"}; CUT.set(src, c); show(src, "unknown"); };   // can't read its pixels: show it as is
+  probe.src = src;
 }
 function avatar(name, team, size, pid){
   const a = el("span", "av"), ini = (name || "?").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase();
