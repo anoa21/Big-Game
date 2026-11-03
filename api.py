@@ -29,6 +29,7 @@ except ImportError as e:                 # never let a missing package take the 
     print("Accounts are switched off:", e)
 import context
 import insight
+import injuries
 import leagueview
 import matchup
 import model
@@ -45,7 +46,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 if accounts is not None:
     app.include_router(accounts.router)
 STATIC = Path(__file__).parent / "static"
-BASE_TTL, ENRICH_TTL = 6 * 3600, 30 * 60   # model every 6h, injuries every 30min
+BASE_TTL, ENRICH_TTL = 6 * 3600, 15 * 60   # model every 6h, injuries and news every 15min
 _base, _enriched, _lock = {}, {}, threading.Lock()
 _nu = {}                                   # next-man-up results, per (season, week)
 _sessions = {}                             # Yahoo logins, in memory only
@@ -116,7 +117,7 @@ def ros_table(season, week):
 
 COLS = ["player_id", "player_display_name", "position", "team", "opponent_team",
         "final_prob", "floor", "median", "ceiling", "injury_status", "injury",
-        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed", "nu_bump", "nu_why", "ctx_pts", "ctx_line", "ctx_notes"]
+        "fantasy_points_ppr_L3", "props", "def_rank", "def_allowed", "nu_bump", "nu_why", "ctx_pts", "ctx_line", "ctx_notes", "injury_news", "injury_updated"]
 
 
 def to_records(df):
@@ -157,6 +158,16 @@ def _load_headshots(season):
             urls = hit[1] if hit else {}
         _heads[season] = (time.time(), urls)
         return urls
+
+
+@app.get("/api/injuries")
+def injuries_view(season: int, week: int, ids: str = ""):
+    """The latest injury picture for the players you ask about (a roster's gsis ids, comma separated)."""
+    want = [i for i in ids.split(",") if i][:80]
+    lat = injuries.latest(season, week)
+    rows = [{**lat[i], "id": i} for i in want if i in lat]
+    return {"as_of": dt.datetime.now(dt.timezone.utc).isoformat(), "season": season, "week": week,
+            "sources": injuries.sources(season, week), "players": rows}
 
 
 @app.get("/api/headshots")
@@ -517,7 +528,11 @@ def playbook_view(season: int, week: int, player_id: str):
     if d.get("on_slate"):
         brief["big_game"] = d["odds"]["big_game"]
         brief["floor"], brief["median"], brief["ceiling"] = d["odds"]["floor"], d["odds"]["median"], d["odds"]["ceiling"]
-    return {"player": brief, "sections": sections, "confidence": conf, "glance": playbook.glance(d), "ai": playbook.ai_enabled()}
+    rec = injuries.latest(season, week).get(player_id) or {}
+    news = {"text": rec.get("news"), "long": rec.get("long"), "updated": rec.get("updated"), "source": rec.get("source"),
+            "return_date": rec.get("return_date"), "practice": rec.get("practice")} if (rec.get("news") or rec.get("practice")) else None
+    return {"player": brief, "sections": sections, "confidence": conf, "glance": playbook.glance(d), "injury_news": news,
+            "ai": playbook.ai_enabled()}
 
 
 class AskReq(BaseModel):
