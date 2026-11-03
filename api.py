@@ -17,6 +17,7 @@ from typing import Optional
 import nflreadpy as nfl
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -40,6 +41,7 @@ import sim
 import sleeper
 
 app = FastAPI(title="Big Game")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 if accounts is not None:
     app.include_router(accounts.router)
 STATIC = Path(__file__).parent / "static"
@@ -130,6 +132,41 @@ def warm():
     t.daemon = True
     t.start()
 
+
+
+# ------------------------------------------------------------------ player pictures --
+_heads = {}
+_heads_lock = threading.Lock()
+
+
+def headshots_enabled():
+    return os.getenv("HEADSHOTS", "on").strip().lower() not in ("off", "0", "false", "no")
+
+
+def _load_headshots(season):
+    """gsis id -> the picture link published with the player data. We only pass the link along; we never copy the image."""
+    with _heads_lock:
+        hit = _heads.get(season)
+        if hit and time.time() - hit[0] < 12 * 3600:
+            return hit[1]
+        try:
+            r = nfl.load_rosters(season).select(["gsis_id", "headshot_url"]).to_pandas()
+            r = r[r["gsis_id"].notna() & r["headshot_url"].astype(str).str.startswith("https://")]
+            urls = dict(zip(r["gsis_id"], r["headshot_url"]))
+        except Exception:
+            urls = hit[1] if hit else {}
+        _heads[season] = (time.time(), urls)
+        return urls
+
+
+@app.get("/api/headshots")
+def headshots(season: int):
+    if not headshots_enabled():
+        return {"on": False, "base": "", "ids": {}}
+    urls = _load_headshots(season)
+    base = os.path.commonprefix(list(urls.values())) if urls else ""
+    base = base[:base.rfind("/") + 1]                  # send the shared part of the address once, not 3,000 times
+    return {"on": True, "base": base, "ids": {k: v[len(base):] for k, v in urls.items()}}
 
 @app.get("/api/defaults")
 def defaults():
