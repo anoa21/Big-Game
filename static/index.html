@@ -534,6 +534,29 @@ details.film h3{margin:14px 0 4px;font-size:18px}
   .pbhero.banner .nm{font-size:28px}
 }
 .pbhero.banner > .pbbadge{display:flex;align-items:center;justify-content:center;padding-top:7px;line-height:1;background:rgba(6,10,24,.55)}
+
+/* ================= injury news ================= */
+.matchup.injnews{color:#8a3b00;font-weight:500}
+.injhead{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:12px 14px;margin:0 0 12px}
+.injhead .sum{font:italic 800 20px/1.15 var(--cond);text-transform:uppercase;letter-spacing:.02em}
+.injhead .src{font-size:13px;color:var(--slate);margin-top:4px}
+.injhead .src.warn{color:#8a5300}
+.injcard{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:start;background:#fff;border:1px solid var(--line);border-radius:18px;
+  padding:12px 14px;box-shadow:var(--shadow);margin:0 0 10px;text-align:left;width:100%;font:inherit;color:var(--ink)}
+.injcard .av{grid-row:1 / span 3;align-self:start;width:56px;height:56px}
+.injcard .nm{font-weight:700;font-size:17px;grid-column:2}
+.injcard .ps{font-size:13px;color:var(--slate);grid-column:2}
+.injcard .pill{grid-column:3;grid-row:1;justify-self:end}
+.injcard .nw{grid-column:2 / -1;font-size:14.5px;margin-top:6px}
+.injcard .ft{grid-column:2 / -1;font-size:12.5px;color:var(--slate);margin-top:4px}
+.injcard.out{background:#fdeceb;border-color:#f6c9c3}
+.injcard.doubtful,.injcard.questionable{background:#fff8ea;border-color:#f3dba8}
+.injcard.watch{background:#fff}
+.healthy{font-size:14px;color:#39445c;margin:8px 0 0}
+.newsbox{background:#fff8ea;border:1px solid #f3dba8;border-radius:18px;padding:12px 14px;margin:0 0 12px}
+.newsbox h4{margin:0 0 4px;font:400 19px/1.2 var(--marker)}
+.newsbox p{margin:0;font-size:15px}
+.newsbox .ft{font-size:12.5px;color:var(--slate);margin-top:6px}
 </style>
 </head>
 <body>
@@ -641,6 +664,7 @@ details.film h3{margin:14px 0 4px;font-size:18px}
   <div id="nextup-panel" style="display:none"></div>
   <div id="weather-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
+  <div id="injuries-panel" style="display:none"></div>
   <div id="coach-panel" style="display:none"></div>
   <div id="more-panel" style="display:none"></div>
 
@@ -753,6 +777,7 @@ function playerRow(p, rank){
     meta.append(document.createTextNode(", "));
     meta.append(el("span", "inj" + (p.injury_status === "Out" ? " out" : ""),
       p.injury_status + (p.injury ? ` (${p.injury.toLowerCase()})` : "")));
+    if (p.injury_news) meta.append(el("span", "matchup injnews", p.injury_news + (p.injury_updated ? ` (${ago(p.injury_updated)})` : "")));
   }
   const mu = matchupInfo(p);
   if (mu) meta.append(el("span", "matchup " + mu.kind, mu.text));
@@ -1312,6 +1337,75 @@ async function loadHeadshots(){
   } catch (e){ /* pictures are a nicety; the initials stay */ }
 }
 
+/* ---- injury news ---- */
+function ago(iso){
+  const t = Date.parse(iso); if (!t) return "";
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (m < 2) return "just now"; if (m < 60) return m + " minutes ago";
+  const hr = Math.round(m / 60); if (hr < 24) return hr + (hr === 1 ? " hour ago" : " hours ago");
+  const d = Math.round(hr / 24); return d === 1 ? "yesterday" : d + " days ago";
+}
+const fmtDate = s => { const d = new Date(s + "T12:00:00"); return isNaN(d) ? s : d.toLocaleDateString("en-US", {month: "short", day: "numeric"}); };
+const INJ_SEV = {Out: 3, Doubtful: 2, Questionable: 1};
+const INJ_KIND = {Out: "bad", Doubtful: "mid", Questionable: "mid"};
+let INJ = null;
+
+function buildInjuriesPanel(){
+  const p = $("injuries-panel");
+  p.append(heading("h2", "Injury report"));
+  p.append(el("p", "groupnote", "The latest on your players, from ESPN\u2019s injury news and the official NFL report."));
+  const out = el("div"); out.id = "inj-out"; out.setAttribute("aria-live", "polite"); p.append(out);
+  const b = el("button", "primary", "Refresh"); b.id = "inj-refresh"; b.style.marginTop = "6px"; b.onclick = showInjuries; p.append(b);
+}
+
+async function showInjuries(){
+  const lg = curLeague(), o = $("inj-out"), {season, week} = ctx();
+  if (!lg || !(lg.roster || []).length){
+    o.replaceChildren(el("p", "status", "Load your league on the Team tab first, and this page shows the latest news on each of your players."));
+    $("inj-refresh").style.display = "none"; return;
+  }
+  $("inj-refresh").style.display = "";
+  o.replaceChildren(el("p", "status", "Checking the latest injury news\u2026"));
+  try {
+    const ids = lg.roster.map(r => r.id).join(",");
+    INJ = await api(`/api/injuries?season=${encodeURIComponent(season)}&week=${encodeURIComponent(week)}&ids=${encodeURIComponent(ids)}`);
+    renderInjuries(lg);
+  } catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+}
+
+function renderInjuries(lg){
+  const r = INJ, byId = new Map(lg.roster.map(x => [x.id, x])), recs = r.players.filter(x => byId.has(x.id));
+  const hurt = recs.filter(x => x.status).sort((a, b) => INJ_SEV[b.status] - INJ_SEV[a.status]);
+  const watch = recs.filter(x => !x.status && x.practice);
+  const quiet = lg.roster.filter(x => !recs.some(y => y.id === x.id));
+  const parts = [], head = el("div", "injhead");
+  const n = s => hurt.filter(x => x.status === s).length, bits = ["Out", "Doubtful", "Questionable"].filter(s => n(s)).map(s => `${n(s)} ${s}`);
+  head.append(el("div", "sum", bits.length ? bits.join("  \u2022  ") : "No one on your roster is listed"));
+  const s = r.sources, nfl = s.nfl_report, feed = s.feed;
+  let line = "", warn = false;
+  if (feed.ok && nfl.ok) line = `Latest news from ESPN${feed.newest ? ", newest note " + ago(feed.newest) : ""}, plus the official NFL report for week ${nfl.week}.`;
+  else if (feed.ok) line = `Latest news from ESPN${feed.newest ? ", newest note " + ago(feed.newest) : ""}. The official NFL report for week ${nfl.week} isn\u2019t out yet; it usually posts on Wednesday.`;
+  else if (nfl.ok){ line = `ESPN\u2019s news feed isn\u2019t reachable right now, so this shows the official NFL report for week ${nfl.week} only. It may be missing late news.`; warn = true; }
+  else { line = `Neither the official report for week ${nfl.week} nor ESPN\u2019s news feed is available right now. Check back soon.`; warn = true; }
+  head.append(el("div", "src" + (warn ? " warn" : ""), line)); parts.push(head);
+  hurt.concat(watch).forEach(x => {
+    const pl = byId.get(x.id), c = el("button", "injcard " + (x.status ? x.status.toLowerCase() : "watch")); c.type = "button";
+    c.append(avatar(pl.name, pl.team, 56, pl.id), el("div", "nm", pl.name), el("div", "ps", `${pl.position} \u2022 ${pl.team}`));
+    c.append(el("span", "pill " + (x.status ? INJ_KIND[x.status] : ""), x.status || "Watch"));
+    const body = [x.injury ? `${x.injury}.` : "", x.practice ? `${x.practice}.` : ""].filter(Boolean).join(" ");
+    const text = x.news || body || (x.status ? "No details yet." : "");
+    if (text) c.append(el("div", "nw", (x.news && body ? `${x.news} ${x.practice ? x.practice + "." : ""}` : text).trim()));
+    const ft = [x.return_date ? `Expected back ${fmtDate(x.return_date)}` : "", x.updated ? `Updated ${ago(x.updated)}` : "", x.source ? `Source: ${x.source}` : ""].filter(Boolean).join("  \u00b7  ");
+    if (ft) c.append(el("div", "ft", ft));
+    c.onclick = () => openPlaybook({player_id: pl.id, player_display_name: pl.name, position: pl.position, team: pl.team});
+    parts.push(c);
+  });
+  if (!hurt.length && !watch.length) parts.push(el("p", "status", "No injury news on any of your players right now."));
+  if (quiet.length) parts.push(el("p", "healthy", `No news on: ${quiet.map(x => x.name).join(", ")}.`));
+  parts.push(el("p", "groupnote", "Where the two sources disagree, we show the more cautious one. News can change quickly, so check again close to kickoff."));
+  $("inj-out").replaceChildren(...parts);
+}
+
 /* ---- the More tab ---- */
 function buildMorePanel(){
   const p = $("more-panel");
@@ -1348,6 +1442,7 @@ function buildCoachPanel(){
   p.append(heading("h3", "Coach\u2019s toolbox"));
   const tb = el("div", "toolbox");
   tb.append(navRow("book", "Playbook", "Film, matchup, and workload for any player", () => setTab("playbook")),
+    navRow("warn", "Injury report", "The latest news on your players", () => setTab("injuries")),
     navRow("swap", "Trade analyzer", "See how a trade changes your lineup", () => setTab("trade")),
     navRow("board", "Game plan", "Your win chance and the swaps that raise it", () => setTab("plan")),
     navRow("up", "Next man up", "Who gains when a starter is out", () => setTab("nextup")));
@@ -1392,7 +1487,7 @@ function renderHub(){
   // sit warning
   const SEV = {Out: 3, Doubtful: 2, Questionable: 1};
   const flagged = mine.filter(p => SEV[p.injury_status]).sort((a, b) => SEV[b.injury_status] - SEV[a.injury_status] || b.final_prob - a.final_prob)[0];
-  if (flagged) t.push(tile("warn", "Sit warning", "warn", playerBody(flagged, flagged.injury_status + (flagged.injury ? ` (${flagged.injury.toLowerCase()})` : "")), () => openPlaybook(flagged)));
+  if (flagged) t.push(tile("warn", "Sit warning", "warn", playerBody(flagged, flagged.injury_news ? `${flagged.injury_status}: ${flagged.injury_news}` : flagged.injury_status + (flagged.injury ? ` (${flagged.injury.toLowerCase()})` : "")), () => setTab("injuries")));
   else if (mine.length) t.push(tile("good", "Sit warning", "warn", [el("div", "tv", "All clear"), el("div", "ts", "No one on your roster is flagged this week.")], () => setTab("mine")));
   else t.push(tile("dim", "Sit warning", "warn", [el("div", "tv", "\u2014"), el("div", "ts", "Load a league first")], () => setTab("mine")));
   // waiver alert
@@ -1500,6 +1595,15 @@ function renderPlaybook(){
       const g = el("div", "glance");
       f.glance.forEach(x => { const r = el("div", "grow"); r.append(el("div", "gl", x.label), el("div", "gv", x.value)); if (x.tag) r.append(el("span", "pill " + x.kind, x.tag)); g.append(r); });
       parts.push(g);
+    }
+    const inw = f.injury_news;
+    if (inw && (inw.text || inw.practice)){
+      const nb = el("div", "newsbox"); nb.append(el("h4", "", "Latest injury news"));
+      if (inw.text) nb.append(el("p", "", inw.text));
+      if (inw.practice) nb.append(el("p", "", inw.practice + "."));
+      const ft = [inw.return_date ? `Expected back ${fmtDate(inw.return_date)}` : "", inw.updated ? `Updated ${ago(inw.updated)}` : "", inw.source ? `Source: ${inw.source}` : ""].filter(Boolean).join("  \u00b7  ");
+      if (ft) nb.append(el("div", "ft", ft));
+      parts.push(nb);
     }
     const m = el("div", "metrics3");
     const cell = (k, v, cls) => { const c = el("div"); c.append(el("div", "mk", k), el("div", "mv " + (cls || ""), v)); return c; };
@@ -2035,11 +2139,11 @@ function showPlatform(){
   for (const k of ["sleeper", "espn", "yahoo", "manual"]) $("p-" + k).classList.toggle("on", k === p);
   if (p === "yahoo" && !YAHOO) $("yahoo-msg").textContent = "Yahoo isn't set up on this site yet.";
 }
-const PANELS = ["trade", "plan", "playbook", "league", "nextup", "weather", "record", "coach", "more"];
+const PANELS = ["trade", "plan", "playbook", "league", "nextup", "weather", "record", "coach", "more", "injuries"];
 let WX_FROM = "more";          // Weather sits under More, but the Coach home's weather tile can open it too
-const NAV_OF = {mine: "mine", coach: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "more",
+const NAV_OF = {mine: "mine", coach: "coach", injuries: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "more",
   league: "league", top: "more", record: "more", more: "more"};
-const BACK_TO = {playbook: ["coach", "Coach"], plan: ["coach", "Coach"], trade: ["coach", "Coach"], nextup: ["coach", "Coach"],
+const BACK_TO = {injuries: ["coach", "Coach"], playbook: ["coach", "Coach"], plan: ["coach", "Coach"], trade: ["coach", "Coach"], nextup: ["coach", "Coach"],
   weather: ["more", "More"], top: ["more", "More"], record: ["more", "More"]};
 function setTab(t){
   tab = t;
@@ -2062,6 +2166,7 @@ function setTab(t){
   if (t === "playbook"){ showPlaybook(); return; }
   if (t === "league"){ refreshLeague(); return; }
   if (t === "nextup"){ showNextUp(); return; }
+  if (t === "injuries"){ showInjuries(); return; }
   if (t === "weather"){ showWeather(); return; }
   if (t === "record"){ loadRecord(); return; }
   if (t === "coach"){ renderHub(); return; }
@@ -2097,6 +2202,7 @@ buildNextUpPanel();
 buildWeatherPanel();
 buildRecordPanel();
 buildMorePanel();
+buildInjuriesPanel();
 buildCoachPanel();
 
 (async () => {
