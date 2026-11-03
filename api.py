@@ -4,6 +4,7 @@ Optional environment variables:
   ANTHROPIC_API_KEY   turns on AI news notes
   YAHOO_CLIENT_ID, YAHOO_CLIENT_SECRET, BASE_URL   turn on Yahoo import
 """
+import datetime as dt
 import json
 import os
 import secrets
@@ -361,8 +362,16 @@ def matchup_view(req: MatchupReq):
         hist = _base[(req.season, req.week)][2]
     except Exception as e:
         raise HTTPException(502, f"Couldn't build this week's projections: {e}")
+    now = dt.datetime.now(dt.timezone.utc)
+    cur_season, cur_week = current_week()
+    if (req.season, req.week) < (cur_season, cur_week):
+        now = None                                 # a past week: nothing is locked, it's just a what-if
+    try:
+        kicks = {t: c.get("kickoff") for t, c in context.game_context(req.season, req.week, weather=False).items()}
+    except Exception:
+        kicks = {}
     sampler = matchup.Sampler(hist, preds, table, req.week, rec=float(ss.get("rec", 1.0)),
-                              te_bonus=float(ss.get("bonus_rec_te", 0.0)))
+                              te_bonus=float(ss.get("bonus_rec_te", 0.0)), kickoffs=kicks, now=now)
     labels = [p for p in (lg.get("roster_positions") or []) if p != "BN"]
 
     def lineup(entry):
@@ -379,8 +388,20 @@ def matchup_view(req: MatchupReq):
     off = set(me.get("reserve") or []) | set(me.get("taxi") or [])
     bench = [matchup.resolve(pid, sl_players, table, sampler) for pid in mine.get("players") or []
              if pid not in starters and pid not in off]
+    rostered_ids, rostered_names = set(), set()
+    for r in rosters:
+        for pid in r.get("players") or []:
+            p = sl_players.get(str(pid)) or {}
+            if p.get("gsis_id"):
+                rostered_ids.add(p["gsis_id"])
+            if p.get("full_name"):
+                rostered_names.add(sleeper.norm(p["full_name"]))
+    fas = matchup.free_agent_pool(sampler, preds, rostered_ids, rostered_names)
+    held = [p for p in (me.get("players") or []) if p not in off]
+    roster_full = len(held) >= len([x for x in (lg.get("roster_positions") or [])])
     result = matchup.analyze(mine_slots, bench, opp_slots, owner.get(me["roster_id"]) or "You",
-                             owner.get(other["roster_id"]) or "Your opponent", req.week)
+                             owner.get(other["roster_id"]) or "Your opponent", req.week,
+                             free_agents=fas, roster_full=roster_full)
     result["league"] = lg.get("name")
     result["rec"] = float(ss.get("rec", 1.0))
     return result
