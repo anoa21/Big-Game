@@ -281,6 +281,42 @@ def breakdown(d):
     return out, conf
 
 
+def glance(d):
+    """Color-coded at-a-glance rows for the top of the film. Each label comes straight from the numbers
+    used in the written breakdown, so the badge and the paragraph can never disagree."""
+    if not d.get("on_slate"):
+        return []
+    pos, rows = d["position"], []
+    r = d["matchup"].get("rank")
+    if r is not None:                                   # 1 = fewest fantasy points allowed to this position
+        tag, kind = ("Favorable", "good") if r >= 23 else ("Tough", "bad") if r <= 10 else ("Average", "mid")
+        rows.append({"label": "Matchup", "value": f"vs {d['opponent']}, {ordinal(r)}-fewest points allowed", "tag": tag, "kind": kind})
+    w = d.get("workload")
+    if w:
+        l3 = w["l3"]
+        if pos == "RB" and l3.get("carries") is not None:
+            t = (l3["carries"] or 0) + (l3.get("targets") or 0)
+            tag, kind = ("High", "good") if t >= 18 else ("Medium", "mid") if t >= 11 else ("Low", "bad")
+            rows.append({"label": "Workload", "value": f"{t:.0f} touches a game lately", "tag": tag, "kind": kind})
+        elif pos in ("WR", "TE") and l3.get("targets") is not None:
+            t = l3["targets"] or 0
+            tag, kind = ("High", "good") if t >= 8 else ("Medium", "mid") if t >= 5 else ("Low", "bad")
+            rows.append({"label": "Workload", "value": f"{t:.0f} targets a game lately", "tag": tag, "kind": kind})
+        elif pos == "QB" and l3.get("passing_yards") is not None:
+            rows.append({"label": "Workload", "value": f"{l3['passing_yards']:.0f} passing yards a game lately", "tag": None, "kind": "mid"})
+    g = d["game_script"]
+    sp = g.get("spread")
+    if sp is not None:
+        who = "Pick'em" if abs(sp) < 0.25 else f"Favored by {abs(sp):g}" if sp > 0 else f"Underdog by {abs(sp):g}"
+        lean = "Run-leaning" if sp >= 3.5 else "Pass-leaning" if sp <= -3.5 else "Balanced"
+        helps = (lean == "Run-leaning" and pos == "RB") or (lean == "Pass-leaning" and pos != "RB")
+        rows.append({"label": "Game script", "value": who, "tag": lean, "kind": "good" if helps else "mid"})
+    st = d["injuries"].get("status")
+    rows.append({"label": "Health", "value": "No injury designation" if not st else st,
+                 "tag": "Healthy" if not st else st, "kind": "good" if not st else "mid" if st == "Questionable" else "bad"})
+    return rows
+
+
 # ------------------------------------------------------------------ the AI coach --
 _cache, _count, _lock = {}, {"day": None, "n": 0}, threading.Lock()
 SECTIONS = ("headline", "matchup", "workload", "injuries", "game_script", "uncertainty", "bottom_line", "answer")
