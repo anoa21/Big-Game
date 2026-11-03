@@ -6,3 +6,5 @@ requests
 fastapi
 uvicorn[standard]
 tzdata
+sqlalchemy
+psycopg2-binary
