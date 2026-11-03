@@ -20,6 +20,7 @@ import nflreadpy as nfl
 import requests
 
 import context
+import injuries
 import nextup
 
 PLURAL = {"QB": "QBs", "RB": "RBs", "WR": "WRs", "TE": "TEs"}
@@ -82,11 +83,27 @@ def usage(hist_df, pid):
 
 
 def injury_frame(season, week):
+    """Everyone with a game designation this week: the official report, topped up with the latest injury news."""
     try:
         inj = nfl.load_injuries([season]).to_pandas()
+        inj = inj[(inj["week"] == week) & (inj["game_type"] == "REG") & inj["report_status"].notna()]
     except Exception:
-        return pd.DataFrame()
-    inj = inj[(inj["week"] == week) & (inj["game_type"] == "REG") & inj["report_status"].notna()]
+        inj = pd.DataFrame()
+    try:
+        lat, info, extra = injuries.latest(season, week), injuries.player_info(season), []
+        for g, rec in lat.items():
+            if rec["status"] not in injuries.SEV or g not in info:
+                continue
+            nm, tm, pos = info[g]
+            extra.append({"gsis_id": g, "full_name": nm, "team": tm, "position": pos, "report_status": rec["status"],
+                          "report_primary_injury": rec["injury"], "report_secondary_injury": rec["injury"]})
+        if extra:
+            add = pd.DataFrame(extra)
+            if not inj.empty and "gsis_id" in inj:
+                inj = inj[~inj["gsis_id"].isin(add["gsis_id"])]
+            inj = pd.concat([inj, add], ignore_index=True)
+    except Exception:
+        pass
     return inj
 
 
