@@ -52,7 +52,7 @@ h1{font:400 26px/1.1 var(--marker);margin:0;letter-spacing:.2px;min-width:0}
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}
 .pick{display:flex;flex-direction:column;gap:4px}
 .pick label{font-size:14px;font-weight:500;color:var(--slate)}
-input,select,button{font:500 16px var(--sans);color:var(--ink);background:var(--panel);
+input,select,button,textarea{font:500 16px var(--sans);color:var(--ink);background:var(--panel);
   border:1.5px solid var(--ink);border-radius:6px 8px 7px 9px / 8px 6px 9px 7px;padding:10px 12px;
   min-height:44px;box-shadow:0 1px 0 rgba(0,0,0,.1)}
 input[type=text],input[type=password]{flex:1 1 200px}
@@ -63,6 +63,7 @@ button:disabled{opacity:.55;cursor:default}
 button.link{border:0;box-shadow:none;background:none;color:var(--slate);padding:4px 0;min-height:36px;
   text-decoration:underline;font-size:14px;text-align:left}
 :focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+textarea{width:100%;flex:1 1 100%;resize:vertical;min-height:120px}
 .inputrow{display:flex;gap:8px;flex:1 1 100%;flex-wrap:wrap}
 .inputrow input{flex:1 1 150px;min-width:0}
 .inputrow .submit{flex:0 0 auto}
@@ -278,6 +279,7 @@ details.more b{font-weight:600}
           <option value="sleeper">Sleeper</option>
           <option value="espn">ESPN</option>
           <option value="yahoo">Yahoo</option>
+          <option value="manual">Type my roster</option>
         </select></div>
     </div>
     <div class="platform on" id="p-sleeper">
@@ -291,11 +293,18 @@ details.more b{font-weight:600}
         <input id="espn-url" type="text" placeholder="Paste your ESPN team page link" aria-label="ESPN team page link">
         <button class="primary submit" id="go-espn">Show my leagues</button>
       </div>
+      <p class="groupnote" style="flex:1 1 100%;margin:0">Use the link from your own team page, the one that shows your roster. It contains leagueId= and teamId=.</p>
       <details>
         <summary>Private league? Add your ESPN cookies</summary>
+        <p class="groupnote">Private leagues need two cookies from ESPN, and only a computer can copy them: log in at fantasy.espn.com, press F12, open Application (Chrome) or Storage (Firefox), choose Cookies, then espn.com, and copy the values of espn_s2 and SWID. On a phone, choose Type my roster instead.</p>
         <input id="espn-s2" type="password" placeholder="espn_s2 cookie" aria-label="espn_s2 cookie">
         <input id="espn-swid" type="password" placeholder="SWID cookie" aria-label="SWID cookie">
       </details>
+    </div>
+    <div class="platform" id="p-manual">
+      <textarea id="manual-text" rows="8" placeholder="One player per line, for example:&#10;CeeDee Lamb&#10;Jahmyr Gibbs&#10;Trey McBride" aria-label="Your players, one per line"></textarea>
+      <button class="primary submit" id="go-manual">Show my team</button>
+      <p class="groupnote" style="flex:1 1 100%;margin:0">Works for any fantasy site. We can’t see the other teams in your league this way, so free agents, Game plan, and League need Sleeper.</p>
     </div>
     <div class="platform" id="p-yahoo">
       <button class="primary" id="yahoo-connect">Connect Yahoo</button>
@@ -312,7 +321,7 @@ details.more b{font-weight:600}
   <div id="record-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The odds also account for the game\u2019s betting lines (how many points each team is expected to score) and, for upcoming outdoor games, forecast wind. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
+  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The odds also account for the game’s betting lines (how many points each team is expected to score) and, for upcoming outdoor games, forecast wind. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
 </main>
 <div class="tray" aria-hidden="true">
   <svg viewBox="0 0 600 72" xmlns="http://www.w3.org/2000/svg">
@@ -507,12 +516,18 @@ const GROUPS = [["QB", "Quarterback"], ["RB", "Running backs"], ["WR", "Wide rec
 
 function lineup(lg){
   const f = document.createDocumentFragment();
+  if (lg.unmatched && lg.unmatched.length)
+    f.append(el("p", "status err", `We couldn\u2019t find: ${lg.unmatched.join(", ")}. Check the spelling, or try the name as it appears on the fantasy site.`));
   if (!lg.players.length) f.append(el("p", "status", "None of your players are playing this week."));
   for (const [pos, label] of GROUPS){
     const list = lg.players.filter(p => p.position === pos);
     if (!list.length) continue;
     f.append(heading("h2", label));
     list.forEach(p => f.append(playerRow(p)));
+  }
+  if (lg.manual){
+    f.append(el("p", "groupnote", "Free agents need the rest of your league\u2019s rosters, which we can\u2019t see from a typed list. Use Sleeper or ESPN for the waiver wire."));
+    return f;
   }
   const w = heading("h3", "Waiver wire");
   w.append(el("span", "hand", "worth a look"));
@@ -1018,7 +1033,8 @@ function buildLeaguePanel(){
 function refreshLeague(){
   const lg = curLeague(), go = $("league-go");
   if (!lg){ $("league-ctx").textContent = "Load a league under My teams first. Then come back here to see your playoff odds and how your roster stacks up."; go.style.display = "none"; return; }
-  go.style.display = "";
+  go.style.display = lg.manual ? "none" : "";
+  if (lg.manual){ $("league-ctx").textContent = "We can\u2019t see the other teams in a typed roster, so this view needs a Sleeper or ESPN league."; return; }
   $("league-ctx").textContent = lg.league_id
     ? `League: ${lg.league}. We simulate the rest of the season for every team to estimate playoff odds, and rank every roster.`
     : `League: ${lg.league}. Roster strength works for this league. Playoff odds need standings and a schedule, which we can only read from Sleeper for now.`;
@@ -1270,6 +1286,7 @@ function leagueBody(){
   const p = $("platform").value;
   const b = {platform: p, season: +$("season").value, week: +$("week").value};
   if (p === "sleeper") b.username = $("user").value.trim();
+  if (p === "manual") b.players = $("manual-text").value.split("\n");
   if (p === "espn"){
     b.url = $("espn-url").value.trim();
     b.espn_s2 = $("espn-s2").value; b.swid = $("espn-swid").value;
@@ -1277,7 +1294,7 @@ function leagueBody(){
   return b;
 }
 
-const SUBMITS = ["go", "go-sleeper", "go-espn"];
+const SUBMITS = ["go", "go-sleeper", "go-espn", "go-manual"];
 const busy = on => SUBMITS.forEach(id => { $(id).disabled = on; });
 
 async function load(){
@@ -1293,6 +1310,8 @@ async function load(){
     const b = leagueBody();
     if (b.platform === "sleeper" && !b.username) return status("Enter your Sleeper username above, then tap Show my leagues.");
     if (b.platform === "espn" && !b.url) return status("Paste your ESPN team page link above, then tap Show my leagues.");
+    if (b.platform === "manual" && !b.players.some(x => x.trim().length >= 3)) return status("Type your players above, one per line, then tap Show my team.");
+    if (b.platform === "manual") localStorage.setItem("bg_manual", $("manual-text").value);
     localStorage.setItem("bg_platform", b.platform);
     if (b.username) localStorage.setItem("bg_user", b.username);
     if (b.url) localStorage.setItem("bg_espn", b.url);
@@ -1306,7 +1325,7 @@ async function load(){
 
 function showPlatform(){
   const p = $("platform").value;
-  for (const k of ["sleeper", "espn", "yahoo"]) $("p-" + k).classList.toggle("on", k === p);
+  for (const k of ["sleeper", "espn", "yahoo", "manual"]) $("p-" + k).classList.toggle("on", k === p);
   if (p === "yahoo" && !YAHOO) $("yahoo-msg").textContent = "Yahoo isn't set up on this site yet.";
 }
 function setTab(t){
@@ -1355,6 +1374,7 @@ buildRecordPanel();
   try {
     $("user").value = localStorage.getItem("bg_user") || "";
     $("espn-url").value = localStorage.getItem("bg_espn") || "";
+    $("manual-text").value = localStorage.getItem("bg_manual") || "";
     $("platform").value = localStorage.getItem("bg_platform") || "sleeper";
   } catch (e) {}
   const d = await api("/api/defaults").catch(() => ({season: 2025, week: 9}));
