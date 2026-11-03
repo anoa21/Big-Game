@@ -481,6 +481,59 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .pbhero .av:not(.has-pic){margin-bottom:16px}
 #weekbar input#season{width:90px}
 #weekbar input#week{width:66px}
+
+/* bigger player pictures on the Coach tiles and the Playbook card */
+.tile .pcell{flex-direction:column;align-items:flex-start;gap:6px}
+.tile .av{width:84px;height:84px;font-size:28px}
+.tile .av.has-pic{width:104px !important;height:96px !important}
+.tile .who2{font-size:17px}
+.pbhero{min-height:156px}
+.pbhero .av.has-pic{width:176px !important;height:152px !important}
+.pbhero .nm{font-size:36px}
+.pbhero > div:last-child{min-width:0}
+.pbhero .nm{overflow-wrap:anywhere}
+@media (max-width:360px){
+  .pbhero .av.has-pic{width:132px !important;height:124px !important}
+  .pbhero .nm{font-size:31px}
+  .tile .av.has-pic{width:92px !important;height:86px !important}
+}
+
+/* ================= Playbook banner: photo on the left, big name, team colours and bands on the right ================= */
+.pbhero.banner{position:relative;overflow:hidden;display:flex;align-items:stretch;gap:0;padding:0;min-height:150px;border-radius:22px;
+  background:linear-gradient(100deg,rgba(8,12,26,.92) 0%,var(--tc) 58%,var(--tc) 100%);box-shadow:var(--shadow)}
+.pbhero.banner::before,.pbhero.banner::after{content:"";position:absolute;z-index:0;top:-20px;bottom:-20px;transform:skewX(-22deg)}
+.pbhero.banner::before{right:70px;width:78px;background:rgba(255,255,255,.10)}
+.pbhero.banner::after{right:-28px;width:112px;background:linear-gradient(180deg,rgba(255,255,255,.17),rgba(255,255,255,.05));border-left:5px solid var(--tc2)}
+.pbhero.banner > *{position:relative;z-index:1}
+.pbhero.banner .av{flex:0 0 auto;align-self:center;width:96px !important;height:96px !important;margin:0 4px 0 14px;font-size:30px}
+.pbhero.banner .av.has-pic{align-self:stretch;width:42% !important;height:auto !important;margin:0}
+.pbhero.banner .av.has-pic img{object-fit:cover;object-position:50% 14%}
+.pbhero.banner .av.has-pic.soft{border-radius:0;overflow:hidden}
+.pbhero.banner .pbtxt{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;padding:14px 8px 14px 14px}
+.pbhero.banner .nm{font:italic 800 clamp(30px,9.4vw,40px)/.94 var(--cond);text-transform:uppercase;color:#fff;overflow-wrap:anywhere;text-shadow:0 2px 6px rgba(0,0,0,.35)}
+.pbhero.banner .nm span{display:block}
+.pbhero.banner .sb{font:600 17px/1 var(--sans);margin-top:10px;opacity:1;color:rgba(255,255,255,.94)}
+.pbhero.banner .sb2{font-size:12.5px;margin-top:6px;color:rgba(255,255,255,.72)}
+.pbhero.banner .pbbadge{flex:0 0 auto;align-self:center;margin:0 14px 0 0;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;
+  font:400 21px/1 Anton,Impact,sans-serif;letter-spacing:.04em;color:#fff;background:rgba(0,0,0,.28);border:2px solid rgba(255,255,255,.6)}
+@media (max-width:360px){
+  .pbhero.banner .pbbadge{display:none}
+  .pbhero.banner .nm{font-size:30px}
+}
+
+/* banner: keep the name clear of the bands */
+.pbhero.banner .av.has-pic{width:38% !important}
+.pbhero.banner .pbtxt{padding:14px 80px 14px 12px}
+.pbhero.banner .nm{font-size:clamp(26px,8.4vw,36px);overflow-wrap:break-word}
+.pbhero.banner::before{right:68px;width:28px}
+.pbhero.banner::after{right:-36px;width:92px}
+.pbhero.banner > .pbbadge{position:absolute;top:12px;right:14px;margin:0;width:46px;height:46px;font-size:15px;border-width:2px}
+@media (max-width:360px){
+  .pbhero.banner .pbtxt{padding-right:34px}
+  .pbhero.banner::before{display:none}
+  .pbhero.banner .nm{font-size:28px}
+}
+.pbhero.banner > .pbbadge{display:flex;align-items:center;justify-content:center;padding-top:7px;line-height:1;background:rgba(6,10,24,.55)}
 </style>
 </head>
 <body>
@@ -1422,11 +1475,22 @@ async function askCoach(question){
   catch (e){ PB.busy = false; PB.ai = {error: e.message}; renderPlaybook(); }
 }
 
+/* team colours for the Playbook banner; very light primaries fall back to the secondary so white text stays readable */
+const TEAM_COLORS = {"ARI":["#97233F","#000000"],"ATL":["#A71930","#000000"],"BAL":["#241773","#9E7C0C"],"BUF":["#00338D","#C60C30"],"CAR":["#0085CA","#000000"],"CHI":["#0B162A","#E64100"],"CIN":["#FB4F14","#000000"],"CLE":["#FF3C00","#311D00"],"DAL":["#002244","#B0B7BC"],"DEN":["#002244","#FB4F14"],"DET":["#0076B6","#B0B7BC"],"GB":["#203731","#FFB612"],"HOU":["#03202F","#A71930"],"IND":["#002C5F","#a5acaf"],"JAX":["#006778","#000000"],"KC":["#E31837","#FFB612"],"LA":["#003594","#FFD100"],"LAC":["#007BC7","#ffc20e"],"LAR":["#003594","#FFD100"],"LV":["#000000","#A5ACAF"],"MIA":["#008E97","#F58220"],"MIN":["#4F2683","#FFC62F"],"NE":["#002244","#C60C30"],"NO":["#D3BC8D","#000000"],"NYG":["#0B2265","#A71930"],"NYJ":["#003F2D","#000000"],"PHI":["#004C54","#A5ACAF"],"PIT":["#000000","#FFB612"],"SEA":["#002244","#69be28"],"SF":["#AA0000","#B3995D"],"TB":["#A71930","#322F2B"],"TEN":["#4495D2","#D50A0A"],"WAS":["#5A1414","#FFB612"]};
+const lum = c => { const n = parseInt(c.slice(1), 16), f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }; return .2126 * f(n >> 16) + .7152 * f((n >> 8) & 255) + .0722 * f(n & 255); };
+function teamColors(team){
+  const c = TEAM_COLORS[team] || ["#1b2f6b", "#4d82ff"];
+  return lum(c[0]) > .30 && lum(c[1]) < lum(c[0]) ? [c[1], c[0]] : c;
+}
 function renderPlaybook(){
   const f = PB.film, parts = [], ai = PB.ai && !PB.ai.error ? PB.ai : null, p = f.player;
-  const hero = el("div", "pbhero"), hb = el("div");
-  hb.append(el("div", "nm", p.name), el("div", "sb", `${p.position} \u2022 ${p.team}${p.opponent ? " vs " + p.opponent : ""}  |  Week ${p.week}`));
-  hero.append(avatar(p.name, p.team, 84, p.player_id), hb); parts.push(hero);
+  const [c1, c2] = teamColors(p.team), hero = el("div", "pbhero banner");
+  hero.style.setProperty("--tc", c1); hero.style.setProperty("--tc2", c2);
+  const parts_ = (p.name || "").split(" "), nm = el("div", "nm"), txt = el("div", "pbtxt");
+  nm.append(el("span", "n1", parts_[0] || ""), document.createTextNode(" "), el("span", "n2", parts_.slice(1).join(" ")));
+  txt.append(nm, el("div", "sb", `${p.position} \u2022 ${p.team}`), el("div", "sb2", (p.opponent ? `vs ${p.opponent}  |  ` : "") + `Week ${p.week}`));
+  hero.append(avatar(p.name, p.team, 96, p.player_id), txt, el("div", "pbbadge", p.team));
+  parts.push(hero);
   if (p.on_slate){
     const bottom = f.sections.find(s => s.key === "bottom");
     const take = ai && ai.headline ? ai.headline : (bottom && bottom.lines[0]) || "";
