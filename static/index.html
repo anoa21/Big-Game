@@ -872,6 +872,30 @@ function renderPlan(r){
   } else {
     parts.push(el("p", "status", "Your lineup looks right. We couldn\u2019t find a swap that clearly helps."));
   }
+  if (r.locked && r.locked.length)
+    parts.push(el("p", "groupnote", `Locked, because their games have already started: ${r.locked.join(", ")}.`));
+  parts.push(heading("h3", "Waiver wire help"));
+  if (r.pickups && r.pickups.length){
+    r.pickups.forEach(x => {
+      const row = el("div", "row");
+      row.append(el("div", "who", `Pick up ${x.add.name}`));
+      const meta = el("div", "meta", `${x.add.position}, ${x.add.team} vs ${x.add.opp}`);
+      meta.append(el("span", "matchup nextup", `Start him at ${x.slot} in place of ${x.replaces.name}: ${x.why}`));
+      if (x.also && x.also.length)
+        meta.append(el("span", "matchup avg", "Also worth a look: " + x.also.map(a => `${a.name} (${a.position}, ${a.team}, +${a.gain}%)`).join(", ")));
+      row.append(meta);
+      const right = el("div", "right");
+      right.append(el("div", "pct", "+" + x.gain + "%"), el("div", "caption", "win chance"));
+      row.append(right); parts.push(row);
+    });
+    parts.push(el("p", "", r.drop ? `Your roster looks full, so the player to drop is ${r.drop.name} (${r.drop.position}, ${r.drop.team}), your lowest-value bench player.`
+      : r.roster_full ? "Your roster looks full, so you\u2019d need to drop someone. Pick a bench player you don\u2019t need." : "You appear to have an open roster spot, so no drop is needed."));
+    parts.push(el("p", "groupnote", "Each pickup is tested on its own against this week\u2019s opponent, using only players whose games haven\u2019t started. Check your league\u2019s waiver rules: a recently dropped player can be locked, and a claim can lose to another team\u2019s priority or budget."));
+  } else {
+    parts.push(el("p", "status", r.locked && r.locked.length >= 3
+      ? "Most of the games that matter this week have already started, so there is little left to change."
+      : "No free agent in your league clearly helps your chances this week. That usually means your roster is already stronger than what is on waivers."));
+  }
   parts.push(heading("h3", "Your lineup"), ...r.lineup.map(lineRow), heading("h3", "Their lineup"), ...r.opp_lineup.map(lineRow));
   const rec = r.rec === 1 ? "full PPR" : r.rec === 0.5 ? "half PPR" : r.rec === 0 ? "standard (no reception points)" : `${r.rec} points per reception`;
   parts.push(el("p", "note", `Win chance comes from simulating this week thousands of times for every starter, using recent form, the defense each faces, and the injury report. Scoring is adjusted for ${rec} receptions; other scoring rules are assumed standard. Kickers and defenses use typical scores. Players are treated as independent, so treat the number as a guide, not a guarantee.`));
