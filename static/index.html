@@ -454,6 +454,17 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .av{position:relative;overflow:hidden}
 .av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 14%;background:inherit}
 .pbhero .av{width:84px;height:84px}
+
+/* player rows with a picture on the left */
+.row.withpic{grid-template-columns:auto 1fr auto;column-gap:12px}
+.row.withpic .rowpic{grid-column:1;grid-row:1 / span 2;align-self:center}
+.row.withpic .who,.row.withpic .meta{grid-column:2}
+.row.withpic .right{grid-column:3}
+.row.withpic .who{align-self:end}
+
+#weekbar{flex-wrap:wrap;gap:8px 10px}
+#weekbar input[type=number]{width:70px}
+.row.withpic .rowpic{align-self:start;margin-top:2px}
 </style>
 </head>
 <body>
@@ -661,7 +672,8 @@ function matchupInfo(p){
 
 /* ---- rows ---- */
 function playerRow(p, rank){
-  const r = el("div", "row");
+  const r = el("div", "row withpic");
+  const pic = avatar(p.player_display_name, p.team, 50, p.player_id); pic.classList.add("rowpic"); r.append(pic);
   const who = el("div", "who");
   if (rank) who.append(el("span", "rank", rank + "."));
   who.append(document.createTextNode(p.player_display_name));
@@ -1162,16 +1174,18 @@ function navRow(ic, title, sub, onclick){
   b.append(i, t, el("span", "chev", "\u203a")); b.onclick = onclick; return b;
 }
 let HEAD = {base: "", ids: {}};
+function addPic(a){
+  const u = a.dataset.pid && HEAD.ids[a.dataset.pid];
+  if (!u || a.querySelector("img")) return;
+  const im = document.createElement("img"); im.alt = ""; im.loading = "lazy"; im.decoding = "async"; im.referrerPolicy = "no-referrer";
+  im.onerror = () => im.remove();                       // no picture? the initials underneath show instead
+  im.src = HEAD.base + u; a.append(im);
+}
 function avatar(name, team, size, pid){
   const a = el("span", "av"), ini = (name || "?").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase();
   a.textContent = ini; a.style.background = `linear-gradient(135deg, hsl(${hashStr(team || name) % 360} 55% 38%), hsl(${(hashStr(team || name) % 360 + 40) % 360} 60% 28%))`;
   if (size){ a.style.width = a.style.height = size + "px"; a.style.fontSize = Math.round(size * .34) + "px"; }
-  const u = pid && HEAD.ids[pid];
-  if (u){
-    const im = document.createElement("img"); im.alt = ""; im.loading = "lazy"; im.decoding = "async"; im.referrerPolicy = "no-referrer";
-    im.onerror = () => im.remove();                       // no picture? the initials underneath show instead
-    im.src = HEAD.base + u; a.append(im);
-  }
+  if (pid){ a.dataset.pid = pid; addPic(a); }
   return a;
 }
 async function loadHeadshots(){
@@ -1179,8 +1193,7 @@ async function loadHeadshots(){
     const j = await api("/api/headshots?season=" + encodeURIComponent($("season").value));
     if (!j || !j.on || !j.ids) return;
     HEAD = {base: j.base || "", ids: j.ids};
-    if (tab === "coach") renderHub();
-    if (tab === "playbook" && PB.film) renderPlaybook();
+    document.querySelectorAll(".av[data-pid]").forEach(addPic);
   } catch (e){ /* pictures are a nicety; the initials stay */ }
 }
 
