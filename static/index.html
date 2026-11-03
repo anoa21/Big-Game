@@ -67,9 +67,12 @@ button.link{border:0;box-shadow:none;background:none;color:var(--slate);padding:
 .inputrow input{flex:1 1 150px;min-width:0}
 .inputrow .submit{flex:0 0 auto}
 
-.tabs{display:flex;flex-wrap:wrap;gap:0 14px;margin:16px 0 14px;border-bottom:1.5px solid var(--line)}
+.tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:0 16px;margin:16px 0 14px;border-bottom:1.5px solid var(--line);
+  scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.tabs::-webkit-scrollbar{display:none}
+.tabs.more{-webkit-mask-image:linear-gradient(to right,#000 88%,transparent);mask-image:linear-gradient(to right,#000 88%,transparent)}
 .tabs button{border:0;border-radius:0;box-shadow:none;background:none;padding:10px 2px;margin-bottom:-1.5px;
-  color:var(--slate);border-bottom:3px solid transparent;font-weight:600;font-size:15px}
+  color:var(--slate);border-bottom:3px solid transparent;font-weight:600;font-size:15px;flex:0 0 auto;white-space:nowrap}
 .tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--blue)}
 
 .platform{display:none;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -159,6 +162,14 @@ details.more b{font-weight:600}
 .nufilter{display:flex;gap:10px;align-items:center;margin:8px 0;font-size:14px;min-height:44px;cursor:pointer}
 .nufilter input{width:22px;height:22px;min-height:0;flex:none;padding:0;box-shadow:none}
 .pct.small{font-size:22px;line-height:1.1}
+.coachnote{border-left:3px solid var(--blue);padding:4px 0 4px 12px;margin:8px 0;font-size:15px}
+.coachnote b{font-weight:600}
+#pb-q{width:100%}
+.pbline{margin:7px 0;font-size:15px}
+.pbhead{font:400 21px/1.25 var(--marker);margin:12px 0 4px}
+.pbmeta{color:var(--slate);margin:2px 0}
+.askrow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.askrow input{flex:1 1 200px;min-width:0}
 .versus{font-weight:600;margin:8px 0 0}
 .bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
   font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
@@ -240,6 +251,7 @@ details.more b{font-weight:600}
 
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
+    <button role="tab" id="tab-playbook" aria-selected="false">Playbook</button>
     <button role="tab" id="tab-plan" aria-selected="false">Game plan</button>
     <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
     <button role="tab" id="tab-nextup" aria-selected="false">Next man up</button>
@@ -282,6 +294,7 @@ details.more b{font-weight:600}
 
   <div id="trade-panel" style="display:none"></div>
   <div id="plan-panel" style="display:none"></div>
+  <div id="playbook-panel" style="display:none"></div>
   <div id="nextup-panel" style="display:none"></div>
   <div id="weather-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
@@ -446,6 +459,9 @@ function playerRow(p, rank){
       }
       d.append(ul);
     }
+    const pb = el("button", "link", "Open in Coach\u2019s Playbook");
+    pb.onclick = () => openPlaybook(p);
+    d.append(pb);
     if (AI){
       const b = el("button", "link", "Latest news");
       b.onclick = async () => {
@@ -689,6 +705,104 @@ async function analyzeTrade(){
   try { renderTrade(await api("/api/trade", body)); }
   catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
   finally { btn.disabled = false; }
+}
+
+/* ---- tabs: keep the active one in view, and hint when there is more to scroll to ---- */
+function centerTab(t){
+  const bar = document.querySelector(".tabs"), b = $("tab-" + t);
+  if (!bar || !b) return;
+  const x = Math.max(b.offsetLeft - 24, 0);
+  if (bar.scrollTo) bar.scrollTo({left: x, behavior: "smooth"}); else bar.scrollLeft = x;
+}
+function tabHint(){
+  const bar = document.querySelector(".tabs");
+  bar.classList.toggle("more", bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 6);
+}
+
+/* ---- coach's playbook: film review for one player ---- */
+const PB = {player: null, film: null, ai: null, busy: false};
+let pbTimer = null;
+
+function buildPlaybookPanel(){
+  const panel = $("playbook-panel");
+  panel.append(heading("h2", "Coach\u2019s Playbook"));
+  panel.append(el("p", "groupnote", "Film review for any player: the defensive matchup, expected workload, injuries, game script, and how sure we are. Everything comes from the data in this app, and where we can\u2019t see something, we say so."));
+  const input = el("input"); input.type = "text"; input.id = "pb-q"; input.autocomplete = "off";
+  input.placeholder = "Search for a player to review"; input.setAttribute("aria-label", "Search for a player to review");
+  input.addEventListener("input", () => { clearTimeout(pbTimer); pbTimer = setTimeout(pbSearch, 250); });
+  const list = el("ul", "results"); list.id = "pb-res";
+  const out = el("div"); out.id = "pb-out"; out.setAttribute("aria-live", "polite");
+  panel.append(input, list, out);
+}
+
+async function pbSearch(){
+  const q = $("pb-q").value.trim(), list = $("pb-res");
+  if (q.length < 2){ list.replaceChildren(); return; }
+  try {
+    const {season, week} = ctx();
+    const hits = await api(`/api/players?season=${season}&week=${week}&q=${encodeURIComponent(q)}`);
+    list.replaceChildren(...(hits.length ? hits.map(h => {
+      const li = el("li"), b = el("button", "", `${h.name}, ${h.position}, ${h.team}`);
+      b.onclick = () => { $("pb-q").value = ""; list.replaceChildren(); pbPick(h); }; li.append(b); return li;
+    }) : [el("li", "none", "No players found")]));
+  } catch (e){ list.replaceChildren(el("li", "none", e.message)); }
+}
+
+function openPlaybook(p){ PB.player = {id: p.player_id || p.id, name: p.player_display_name || p.name, position: p.position, team: p.team}; PB.film = null; PB.ai = null; setTab("playbook"); }
+function pbPick(h){ PB.player = {id: h.id, name: h.name, position: h.position, team: h.team}; PB.film = null; PB.ai = null; loadFilm(); }
+function showPlaybook(){
+  if (!PB.player){ $("pb-out").replaceChildren(el("p", "status", "Pick a player above, or open any player\u2019s details and tap \u201cOpen in Coach\u2019s Playbook.\u201d")); return; }
+  PB.film ? renderPlaybook() : loadFilm();
+}
+
+async function loadFilm(){
+  const o = $("pb-out"), {season, week} = ctx();
+  o.replaceChildren(el("p", "status", `Pulling up the film on ${PB.player.name}\u2026`));
+  try { PB.film = await api(`/api/playbook?season=${season}&week=${week}&player_id=${encodeURIComponent(PB.player.id)}`); renderPlaybook(); }
+  catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+}
+
+async function askCoach(question){
+  if (PB.busy) return;
+  PB.busy = true; renderPlaybook();
+  const {season, week} = ctx();
+  try { PB.ai = await api("/api/playbook/ask", {season: +season, week: +week, player_id: PB.player.id, question: question || ""}); PB.ai._q = question || ""; PB.busy = false; renderPlaybook(); }
+  catch (e){ PB.busy = false; PB.ai = {error: e.message}; renderPlaybook(); }
+}
+
+function renderPlaybook(){
+  const f = PB.film, parts = [], ai = PB.ai && !PB.ai.error ? PB.ai : null, p = f.player;
+  parts.push(heading("h3", p.name));
+  parts.push(el("p", "pbmeta", `${p.position}, ${p.team}${p.opponent ? " vs " + p.opponent : ""}, week ${p.week}`));
+  if (p.on_slate){
+    const kind = p.big_game >= 0.40 ? "strong" : p.big_game >= 0.20 ? "solid" : "risky";
+    const big = el("div", "bigwin " + kind);
+    big.append(svgEl(176, 88, ovalPath(176, 88, hashStr(p.name + "pb"))), el("span", "", pct0(p.big_game)));
+    parts.push(big, el("p", "winlabel", `chance of a big game. Confidence in this read: ${f.confidence.level}.`));
+  }
+  if (ai && ai.headline) parts.push(el("div", "coachnote", ai.headline));
+  if (ai && ai.answer){ const a = el("div", "coachnote"); a.append(el("b", "", "Coach\u2019s answer: "), document.createTextNode(ai.answer)); parts.push(a); }
+  const aiKey = {matchup: "matchup", workload: "workload", injuries: "injuries", script: "game_script", uncertainty: "uncertainty", bottom: "bottom_line"};
+  f.sections.forEach(s => {
+    parts.push(heading("h3", s.title));
+    s.lines.forEach(l => parts.push(el("p", "pbline", l)));
+    const note = ai && ai[aiKey[s.key]];
+    if (note){ const c = el("div", "coachnote"); c.append(el("b", "", "Coach\u2019s read: "), document.createTextNode(note)); parts.push(c); }
+  });
+  if (f.ai && p.on_slate){
+    parts.push(heading("h3", "Ask the coach"));
+    if (PB.ai && PB.ai.error) parts.push(el("p", "status err", PB.ai.error));
+    const row = el("div", "askrow"), q = el("input"); q.type = "text"; q.id = "pb-ask"; q.maxLength = 300;
+    q.placeholder = "Ask about this player, for example: Should I start him this week?"; q.setAttribute("aria-label", "Ask the coach a question");
+    const go = el("button", "primary", PB.busy ? "The coach is thinking\u2026" : (ai ? "Ask again" : "Get the coach\u2019s read")); go.disabled = PB.busy;
+    go.onclick = () => askCoach($("pb-ask").value.trim());
+    q.addEventListener("keydown", e => { if (e.key === "Enter") go.click(); });
+    row.append(q, go); parts.push(row);
+    parts.push(el("p", "groupnote", "The coach only knows what is in the film above. It can be wrong, and it never gives betting advice."));
+  } else if (p.on_slate){
+    parts.push(el("p", "groupnote", "The written breakdown above is built from the app\u2019s own data. An AI coach that explains it in plain English can be switched on by the site owner."));
+  }
+  $("pb-out").replaceChildren(...parts);
 }
 
 /* ---- game plan: your chance to win this week, and the swaps that raise it ---- */
@@ -1050,13 +1164,15 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  for (const k of ["mine", "plan", "trade", "nextup", "top", "weather", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  for (const k of ["mine", "playbook", "plan", "trade", "nextup", "top", "weather", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  centerTab(t);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
-  for (const k of ["trade", "plan", "nextup", "weather", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
+  for (const k of ["trade", "plan", "playbook", "nextup", "weather", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
   if (t === "trade"){ refreshTrade(); return; }
   if (t === "plan"){ refreshPlan(); return; }
+  if (t === "playbook"){ showPlaybook(); return; }
   if (t === "nextup"){ showNextUp(); return; }
   if (t === "weather"){ showWeather(); return; }
   if (t === "record"){ loadRecord(); return; }
@@ -1070,6 +1186,7 @@ $("tab-mine").onclick = () => setTab("mine");
 $("tab-top").onclick = () => setTab("top");
 $("tab-trade").onclick = () => setTab("trade");
 $("tab-plan").onclick = () => setTab("plan");
+$("tab-playbook").onclick = () => setTab("playbook");
 $("tab-nextup").onclick = () => setTab("nextup");
 $("tab-weather").onclick = () => setTab("weather");
 $("tab-record").onclick = () => setTab("record");
@@ -1077,6 +1194,9 @@ $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/log
 
 buildTradePanel();
 buildPlanPanel();
+buildPlaybookPanel();
+document.querySelector(".tabs").addEventListener("scroll", tabHint);
+window.addEventListener("resize", tabHint);
 buildNextUpPanel();
 buildWeatherPanel();
 buildRecordPanel();
@@ -1095,6 +1215,7 @@ buildRecordPanel();
   showPlatform();
   if (y === "failed") $("yahoo-msg").textContent = "Yahoo sign-in didn't finish. Try again.";
   setTab("mine");   // always open on the league search bar
+  tabHint();
 })();
 </script>
 </body>
