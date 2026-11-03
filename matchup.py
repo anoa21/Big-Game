@@ -6,6 +6,9 @@ faces, the injury report). Add up each team's starters in each simulation and
 count how often you come out ahead. A swap is judged by how much it moves that
 chance, so the advice automatically favors upside when you're the underdog and
 a steady floor when you're the favorite.
+Waiver help: every free agent in your league is tested the same way against this
+week's opponent, using only players whose games haven't kicked off, with a suggested
+drop if your roster is full. Players whose games have started are locked and ignored.
 Simplifications: players are treated as independent, kickers and defenses use
 typical scores, and only reception scoring is adjusted for your league.
 """
@@ -35,7 +38,7 @@ def _nn(v):
 
 
 class Sampler:
-    def __init__(self, hist_df, preds, table, week, rec=1.0, te_bonus=0.0, n=N):
+    def __init__(self, hist_df, preds, table, week, rec=1.0, te_bonus=0.0, n=N, kickoffs=None, now=None):
         h = hist_df[hist_df["position"].isin(POS)].sort_values(["season", "week"]).copy()
         h["adj"] = league_points(h, rec, te_bonus)
         self.recent = {pid: g["adj"].to_numpy(float)
@@ -43,13 +46,19 @@ class Sampler:
         self.preds = preds.set_index("player_id", drop=False)
         self.pos_avg = preds.groupby("position")["opp_pts_allowed_L6"].mean().to_dict()
         self.table, self.week, self.n = table, week, n
+        self.kickoffs, self.now = kickoffs or {}, now
         self.repl = ros.replacement_ppg(table)
         self.cache = {}
+
+    def locked(self, team):
+        """True once that team's game has kicked off (lineups lock player by player)."""
+        k = self.kickoffs.get(team)
+        return bool(self.now is not None and k is not None and k <= self.now)
 
     def empty(self):
         z = np.zeros(self.n)
         return {"key": "empty", "name": "Empty slot", "position": None, "team": None, "opp": None,
-                "status": None, "note": "Nobody is starting in this slot.", "s": z,
+                "status": None, "note": "Nobody is starting in this slot.", "s": z, "locked": False, "ros": None,
                 "mean": 0.0, "low": 0.0, "high": 0.0}
 
     def player(self, pid, name, position):
@@ -85,8 +94,11 @@ class Sampler:
             note = "Not enough game history, so counted at replacement level."
         else:
             s, note = np.zeros(n), "Not scored by this model, so counted as 0."
+        long_term = None
+        if pid in self.table.index and _nn(self.table.loc[pid, "ros_pts"]) is not None:
+            long_term = float(self.table.loc[pid, "ros_pts"])
         out = {"key": key, "name": name, "position": position, "team": team, "opp": opp,
-               "status": status, "note": note, "s": s,
+               "status": status, "note": note, "s": s, "locked": self.locked(team), "ros": long_term,
                "mean": float(s.mean()), "low": float(np.percentile(s, 10)), "high": float(np.percentile(s, 90))}
         self.cache[key] = out
         return out
@@ -105,6 +117,25 @@ def resolve(sl_id, sl_players, table, sampler):
         hit = table[(table["name"].map(sleeper.norm) == key) & (table["position"] == pos)]
         gsis = hit.index[0] if len(hit) else None
     return sampler.player(gsis if pos in POS else None, name, pos)
+
+
+def free_agent_pool(sampler, preds, rostered_ids, rostered_names, per_pos=10):
+    """The best unrostered players on this week's slate, simulated and ready to test."""
+    pool = []
+    for r in preds.itertuples():
+        if r.position not in POS or r.player_id in rostered_ids or sleeper.norm(r.player_display_name) in rostered_names:
+            continue
+        if r.injury_status == "Out":
+            continue
+        p = sampler.player(r.player_id, r.player_display_name, r.position)
+        if p["note"] or not p["opp"]:        # no real history, or no game to play: never recommend a guess
+            continue
+        if not p["locked"]:
+            pool.append(p)
+    out = []
+    for pos in POS:
+        out += sorted([p for p in pool if p["position"] == pos], key=lambda p: -p["mean"])[:per_pos]
+    return out
 
 
 def _win(mine, opp):
@@ -128,7 +159,8 @@ def _why(inn, out, wp):
     return "about the same points with a higher ceiling" if up > 0 else "about the same points with a steadier floor"
 
 
-def analyze(my_slots, bench, opp_slots, my_name="You", opp_name="Your opponent", week=None):
+def analyze(my_slots, bench, opp_slots, my_name="You", opp_name="Your opponent", week=None,
+            free_agents=None, roster_full=False):
     """my_slots / opp_slots: [(slot label, player)], bench: [player]."""
     mine = sum(p["s"] for _, p in my_slots)
     opp = sum(p["s"] for _, p in opp_slots)
@@ -139,10 +171,10 @@ def analyze(my_slots, bench, opp_slots, my_name="You", opp_name="Your opponent",
     for _ in range(3):
         best = None
         for i, (slot, p) in enumerate(cur):
-            if slot not in SLOT_OK or p["position"] not in POS:
+            if slot not in SLOT_OK or p["position"] not in POS or p.get("locked"):
                 continue
             for b in pool:
-                if b["position"] not in SLOT_OK[slot]:
+                if b["position"] not in SLOT_OK[slot] or b.get("locked"):
                     continue
                 new = total - p["s"] + b["s"]
                 gain = _win(new, opp) - cur_wp
@@ -157,6 +189,39 @@ def analyze(my_slots, bench, opp_slots, my_name="You", opp_name="Your opponent",
         pool = [x for x in pool if x["key"] != b["key"]] + [out_p]
         cur[i] = (slot, b)
         total, cur_wp = new, cur_wp + gain
+
+    # waiver wire: test each free agent against the lineup you'd have after the bench moves
+    pickups = []
+    for fa in free_agents or []:
+        best = None
+        for slot, p in cur:
+            if slot not in SLOT_OK or p["position"] not in POS or p.get("locked") or fa["position"] not in SLOT_OK[slot]:
+                continue
+            gain = _win(total - p["s"] + fa["s"], opp) - cur_wp
+            if best is None or gain > best[0]:
+                best = (gain, slot, p)
+        if best and best[0] >= 0.01:
+            gain, slot, p = best
+            pickups.append({"add": _row(slot, fa), "slot": slot, "replaces": _row(slot, p), "gain": round(100 * gain),
+                            "why": _why(fa, p, cur_wp), "_g": gain})
+    pickups = sorted(pickups, key=lambda x: -x["_g"])
+    grouped = {}
+    for x in pickups:                                   # one best pickup per starter, the rest listed as alternatives
+        key = x["replaces"]["name"]
+        if key not in grouped:
+            grouped[key] = dict(x, also=[])
+        else:
+            grouped[key]["also"].append({"name": x["add"]["name"], "position": x["add"]["position"],
+                                         "team": x["add"]["team"], "gain": x["gain"]})
+    pickups = list(grouped.values())[:3]
+    for x in pickups:
+        x.pop("_g"); x["also"] = x["also"][:2]
+    drop = None
+    if roster_full and pickups:
+        droppable = [b for b in pool if b["position"] in POS and not b.get("locked")]
+        if droppable:
+            d = min(droppable, key=lambda b: b["ros"] if b["ros"] is not None else b["mean"] * 8)
+            drop = {"name": d["name"], "position": d["position"], "team": d["team"], "expected": round(d["mean"], 1)}
 
     stance = "favorite" if wp >= 0.58 else "underdog" if wp <= 0.42 else "toss-up"
     advice = {"favorite": "You're the favorite, so protecting your floor matters more than chasing upside.",
@@ -176,4 +241,6 @@ def analyze(my_slots, bench, opp_slots, my_name="You", opp_name="Your opponent",
         "lineup": [_row(s, p) for s, p in my_slots],
         "opp_lineup": [_row(s, p) for s, p in opp_slots],
         "moves": moves, "win_prob_after": round(cur_wp, 3) if moves else None,
+        "pickups": pickups, "drop": drop, "roster_full": roster_full,
+        "locked": [p["name"] for _, p in my_slots if p.get("locked") and p["position"] in POS],
         "warnings": warnings}
