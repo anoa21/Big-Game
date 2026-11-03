@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import nflreadpy as nfl
 import context
+import injuries
 import model
 
 PLAY_PROB = {"Out": 0.0, "Doubtful": 0.05, "Questionable": 0.7}
@@ -137,20 +138,18 @@ def defense_table(hist_df, last_n=6):
 
 
 def injury_report(season, week):
-    """gsis_id -> (status, injury) for players on the official report."""
+    """gsis_id -> (status, injury): the official report merged with the latest injury news (see injuries.py)."""
     try:
-        inj = nfl.load_injuries([season]).to_pandas()
+        lat = injuries.latest(season, week)
     except Exception:
         return {}
-    inj = inj[(inj["week"] == week) & (inj["game_type"] == "REG")
-              & inj["report_status"].isin(PLAY_PROB)]
-    return {r.gsis_id: (r.report_status, r.report_primary_injury)
-            for r in inj.itertuples()}
+    return {g: (r["status"], r["injury"]) for g, r in lat.items() if r["status"] in PLAY_PROB}
 
 
 def enrich(preds, hist_df, season, week, blend=0.5, with_props=True, weather=True):
     """Add simulation odds, point range and injury status to model output."""
     inj = injury_report(season, week)
+    news = injuries.latest(season, week)
     hist_df = hist_df.sort_values(["season", "week"])
     recent = (hist_df.groupby("player_id")["fantasy_points_ppr"]
               .apply(lambda s: s.tail(HIST_N).tolist()).to_dict())
@@ -185,12 +184,13 @@ def enrich(preds, hist_df, season, week, blend=0.5, with_props=True, weather=Tru
                                rng=np.random.default_rng(zlib.crc32(r.player_id.encode())))
                  if with_props and r.player_id in games else [])
         d_rank, d_allowed = dtable.get((r.opponent_team, r.position), (None, None))
+        nr = news.get(r.player_id) or {}
         rows.append((p_sim, p10, p50, p90, status, injury, play, final, props,
-                     d_rank, d_allowed, ctx_pts, ctx_line, ctx_notes))
+                     d_rank, d_allowed, ctx_pts, ctx_line, ctx_notes, nr.get("news"), nr.get("updated")))
     out = preds.copy()
     out[["p_sim", "floor", "median", "ceiling", "injury_status",
          "injury", "play_prob", "final_prob", "props",
-         "def_rank", "def_allowed", "ctx_pts", "ctx_line", "ctx_notes"]] = pd.DataFrame(rows, index=out.index)
+         "def_rank", "def_allowed", "ctx_pts", "ctx_line", "ctx_notes", "injury_news", "injury_updated"]] = pd.DataFrame(rows, index=out.index)
     return out.sort_values("final_prob", ascending=False).reset_index(drop=True)
 
 
