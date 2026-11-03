@@ -10,6 +10,7 @@ import os
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel
 
 import context
 import insight
+import leagueview
 import matchup
 import model
 import nextup
@@ -501,6 +503,160 @@ def next_man_up(season: int, week: int):
         return _nu[(season, week)]
     except Exception as e:
         raise HTTPException(502, f"Couldn't work out who gains this week: {e}")
+
+
+# ------------------------------------------------- league outlook (strength + playoffs) --
+class OutlookReq(BaseModel):
+    username: str
+    league_id: str
+    season: int
+    week: int
+
+
+def _table_ids(table):
+    idx = {}
+    for pid, name, pos in zip(table.index, table["name"], table["position"]):
+        idx[(sleeper.norm(name), pos)] = pid
+    return idx
+
+
+def _roster_ids(roster, sl_players, table, idx):
+    out = []
+    for sid in roster.get("players") or []:
+        p = sl_players.get(str(sid)) or {}
+        gsis = p.get("gsis_id")
+        pid = gsis if gsis in table.index else idx.get((sleeper.norm(p.get("full_name") or ""), p.get("position")))
+        if pid is not None and pid not in out:
+            out.append(pid)
+    return out
+
+
+@app.post("/api/league/outlook")
+def league_outlook(req: OutlookReq):
+    try:
+        uid = sleeper.get_user_id(req.username)
+        lg = sleeper.get_league(req.league_id)
+        rosters = sleeper.get_rosters(req.league_id)
+        users = sleeper.get_league_users(req.league_id)
+        sl_players = sleeper.get_players()
+    except (requests.RequestException, TypeError, KeyError):
+        raise HTTPException(502, "Couldn't reach Sleeper for that league. Try again shortly.")
+    me = next((r for r in rosters if r.get("owner_id") == uid or uid in (r.get("co_owners") or [])), None)
+    if not me:
+        raise HTTPException(404, "Couldn't find your team in that league.")
+    try:
+        table = ros_table(req.season, req.week)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't build the projections: {e}")
+    st = lg.get("settings") or {}
+    playoff_teams = int(st.get("playoff_teams") or 6)
+    reg_weeks = int(st.get("playoff_week_start") or 15) - 1
+    names = {u["user_id"]: (u.get("metadata") or {}).get("team_name") or u.get("display_name") for u in users or []}
+    positions = lg.get("roster_positions") or []
+    slots = {**(sleeper.slots_from(positions) or ros.DEFAULT_SLOTS), "K": positions.count("K"), "DEF": positions.count("DEF")}
+    idx = _table_ids(table)
+    ids = {r["roster_id"]: _roster_ids(r, sl_players, table, idx) for r in rosters}
+    taken = {i for v in ids.values() for i in v}
+    repl = ros.replacement_ppg(table, set(table.index) - taken)
+    # standings
+    def rec(r):
+        s = r.get("settings") or {}
+        return {"wins": int(s.get("wins") or 0), "losses": int(s.get("losses") or 0), "ties": int(s.get("ties") or 0),
+                "pf": float(s.get("fpts") or 0) + float(s.get("fpts_decimal") or 0) / 100}
+    standings = {r["roster_id"]: rec(r) for r in rosters}
+    gp = max(s["wins"] + s["losses"] + s["ties"] for s in standings.values())
+    remaining = list(range(gp + 1, reg_weeks + 1))
+    nums = {rid: leagueview.team_numbers(table, ids[rid], slots, repl, remaining, req.week) for rid in ids}
+    # line up the scoring scale with how this league has really been scoring
+    scale, aw = 1.0, 0.0
+    if gp > 0:
+        actual = {rid: standings[rid]["pf"] / max(sum(standings[rid][k] for k in ("wins", "losses", "ties")), 1) for rid in ids}
+        proj_avg = sum(n["ppg"] for n in nums.values()) / len(nums)
+        scale = min(max((sum(actual.values()) / len(actual)) / proj_avg, 0.7), 1.3) if proj_avg else 1.0
+        aw = min(0.5, gp / 20)
+    order = list(ids)
+    pos_of = {rid: i for i, rid in enumerate(order)}
+    teams_sim = []
+    for rid in order:
+        n_, s_ = nums[rid], standings[rid]
+        act = s_["pf"] / max(s_["wins"] + s_["losses"] + s_["ties"], 1) if gp > 0 else None
+        mean = {w: ((1 - aw) * n_["by_week"][w] * scale + aw * act) if act is not None else n_["by_week"][w] * scale for w in remaining}
+        teams_sim.append({"wins": s_["wins"], "ties": s_["ties"], "pf": s_["pf"], "mean_by_week": mean, "sd": n_["sd"] * scale})
+    def pairs(week):
+        try:
+            ms = sleeper.get_matchups(req.league_id, week) or []
+        except Exception:
+            return week, []
+        groups = {}
+        for m in ms:
+            if m.get("matchup_id") is not None:
+                groups.setdefault(m["matchup_id"], []).append(m["roster_id"])
+        return week, [(pos_of[g[0]], pos_of[g[1]]) for g in groups.values() if len(g) == 2 and g[0] in pos_of and g[1] in pos_of]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        schedule = {w: p for w, p in ex.map(pairs, remaining) if p}
+    my_i = pos_of[me["roster_id"]]
+    sim_out = leagueview.simulate(teams_sim, schedule, playoff_teams, my_i)
+    # strength ranks
+    cards = [{"name": names.get(r.get("owner_id")) or f"Team {r['roster_id']}", "mine": r["roster_id"] == me["roster_id"],
+              "numbers": nums[r["roster_id"]]} for r in rosters]
+    avg, n_teams = leagueview.strength(cards)
+    by_rid = {r["roster_id"]: c for r, c in zip(rosters, cards)}
+    out = []
+    for i, rid in enumerate(order):
+        c, s_ = by_rid[rid], standings[rid]
+        out.append({"name": c["name"], "mine": c["mine"], "wins": s_["wins"], "losses": s_["losses"], "ties": s_["ties"],
+                    "pf": round(s_["pf"], 1), "playoff": round(float(sim_out["playoff"][i]), 3),
+                    "exp_wins": round(float(sim_out["wins"][i]), 1), "seed_median": int(sim_out["seed_median"][i]),
+                    "ppg_projected": round(c["numbers"]["ppg"] * scale, 1),
+                    "ppg_actual": None if gp == 0 else round(s_["pf"] / max(s_["wins"] + s_["losses"] + s_["ties"], 1), 1),
+                    "group": c["numbers"]["group"], "depth": c["numbers"]["depth"], "rank": c["rank"], "top": c["numbers"]["top"],
+                    "empty": c["numbers"]["empty"]})
+    out.sort(key=lambda t: (-t["playoff"], -t["exp_wins"]))
+    swing = [{**s, "opponent": next(c["name"] for c in cards if by_rid[order[s["opponent_index"]]] is c)} for s in sim_out["swing"][:3]]
+    for s in swing:
+        s.pop("opponent_index")
+    mine_card = next(c for c in cards if c["mine"])
+    return {"league": lg.get("name"), "season": req.season, "week": req.week, "playoff_teams": playoff_teams,
+            "games_played": gp, "regular_weeks": reg_weeks, "remaining": len(remaining), "teams": out,
+            "averages": {k: round(v, 1) for k, v in avg.items()}, "verdict": leagueview.verdict(mine_card, avg, n_teams),
+            "swing": swing, "scale": round(scale, 2), "slots": slots}
+
+
+class StrengthTeam(BaseModel):
+    name: str
+    mine: bool = False
+    roster: list[str]
+
+
+class StrengthReq(BaseModel):
+    season: int
+    week: int
+    teams: list[StrengthTeam]
+    slots: Optional[dict] = None
+    replacement: Optional[dict] = None
+
+
+@app.post("/api/league/strength")
+def league_strength(req: StrengthReq):
+    """Roster strength only, for leagues where we can see every roster but not the standings (ESPN)."""
+    if not 2 <= len(req.teams) <= 20:
+        raise HTTPException(400, "That doesn't look like a full league.")
+    try:
+        table = ros_table(req.season, req.week)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't build the projections: {e}")
+    slots = {**ros.DEFAULT_SLOTS, **{k: max(0, min(int(v), 8)) for k, v in (req.slots or {}).items() if isinstance(v, (int, float))}}
+    taken = {i for t in req.teams for i in t.roster[:40]}
+    repl = {**ros.replacement_ppg(table, set(table.index) - taken),
+            **{k: float(v) for k, v in (req.replacement or {}).items() if k in ros.POS and isinstance(v, (int, float))}}
+    cards = [{"name": t.name[:60], "mine": t.mine, "numbers": leagueview.team_numbers(table, t.roster[:40], slots, repl, [], req.week)} for t in req.teams]
+    avg, n_teams = leagueview.strength(cards)
+    mine = next((c for c in cards if c["mine"]), None)
+    out = [{"name": c["name"], "mine": c["mine"], "ppg_projected": c["numbers"]["ppg"], "group": c["numbers"]["group"],
+            "depth": c["numbers"]["depth"], "rank": c["rank"], "top": c["numbers"]["top"], "empty": c["numbers"]["empty"]} for c in cards]
+    out.sort(key=lambda t: t["rank"]["overall"])
+    return {"teams": out, "averages": {k: round(v, 1) for k, v in avg.items()},
+            "verdict": leagueview.verdict(mine, avg, n_teams) if mine else []}
 
 
 @app.get("/api/record")
