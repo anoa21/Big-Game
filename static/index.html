@@ -1171,6 +1171,7 @@ function buildMorePanel(){
   const ap = el("div", "authpanel"); ap.id = "auth-panel"; ap.style.display = "none";
   p.append(bar, ap);
   p.append(navRow("star", "Top picks", "The players most likely to have a big game this week", () => setTab("top")));
+  p.append(navRow("cloud", "Weather", "Kickoff forecasts for every game", () => { WX_FROM = "more"; setTab("weather"); }));
   p.append(navRow("chart", "Track record", "How our odds have done so far this season", () => setTab("record")));
 }
 /* ---- the Coach home screen ---- */
@@ -1200,8 +1201,7 @@ function buildCoachPanel(){
   tb.append(navRow("book", "Playbook", "Film, matchup, and workload for any player", () => setTab("playbook")),
     navRow("swap", "Trade analyzer", "See how a trade changes your lineup", () => setTab("trade")),
     navRow("board", "Game plan", "Your win chance and the swaps that raise it", () => setTab("plan")),
-    navRow("up", "Next man up", "Who gains when a starter is out", () => setTab("nextup")),
-    navRow("cloud", "Weather", "Kickoff forecasts for every game", () => setTab("weather")));
+    navRow("up", "Next man up", "Who gains when a starter is out", () => setTab("nextup")));
   p.append(tb);
 }
 
@@ -1258,8 +1258,8 @@ function renderHub(){
   else t.push(tile("dim", "League outlook", "chart", [el("div", "tv", "\u2014"), el("div", "ts", "Load a league first")], () => setTab("mine")));
   // weather note
   const windy = mine.filter(p => (p.ctx_notes || []).some(n => /wind/i.test(n)));
-  if (windy.length) t.push(tile("info", "Weather note", "wind", [el("div", "tv", "Strong wind"), el("div", "ts", `${windy.slice(0, 2).map(p => p.player_display_name).join(" and ")}${windy.length > 2 ? " and more" : ""} play in windy open-air games.`)], () => setTab("weather")));
-  else t.push(tile(mine.length ? "good" : "dim", "Weather note", "wind", [el("div", "tv", mine.length ? "Calm" : "\u2014"), el("div", "ts", mine.length ? "No wind worries for your players." : "Load a league first")], () => setTab("weather")));
+  if (windy.length) t.push(tile("info", "Weather note", "wind", [el("div", "tv", "Strong wind"), el("div", "ts", `${windy.slice(0, 2).map(p => p.player_display_name).join(" and ")}${windy.length > 2 ? " and more" : ""} play in windy open-air games.`)], () => { WX_FROM = "coach"; setTab("weather"); }));
+  else t.push(tile(mine.length ? "good" : "dim", "Weather note", "wind", [el("div", "tv", mine.length ? "Calm" : "\u2014"), el("div", "ts", mine.length ? "No wind worries for your players." : "Load a league first")], () => { WX_FROM = "coach"; setTab("weather"); }));
   $("hub-tiles").replaceChildren(...t);
 }
 
@@ -1876,15 +1876,17 @@ function showPlatform(){
   if (p === "yahoo" && !YAHOO) $("yahoo-msg").textContent = "Yahoo isn't set up on this site yet.";
 }
 const PANELS = ["trade", "plan", "playbook", "league", "nextup", "weather", "record", "coach", "more"];
-const NAV_OF = {mine: "mine", coach: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "coach",
+let WX_FROM = "more";          // Weather sits under More, but the Coach home's weather tile can open it too
+const NAV_OF = {mine: "mine", coach: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "more",
   league: "league", top: "more", record: "more", more: "more"};
 const BACK_TO = {playbook: ["coach", "Coach"], plan: ["coach", "Coach"], trade: ["coach", "Coach"], nextup: ["coach", "Coach"],
-  weather: ["coach", "Coach"], top: ["more", "More"], record: ["more", "More"]};
+  weather: ["more", "More"], top: ["more", "More"], record: ["more", "More"]};
 function setTab(t){
   tab = t;
   for (const k of ["mine", "playbook", "plan", "league", "trade", "nextup", "top", "weather", "record"]){ const b = $("tab-" + k); if (b) b.setAttribute("aria-selected", t === k); }
   centerTab(t);
-  document.querySelectorAll("#bottomnav [data-nav]").forEach(b => b.setAttribute("aria-current", b.dataset.nav === NAV_OF[t] ? "page" : "false"));
+  const navNow = t === "weather" ? WX_FROM : NAV_OF[t];
+  document.querySelectorAll("#bottomnav [data-nav]").forEach(b => b.setAttribute("aria-current", b.dataset.nav === navNow ? "page" : "false"));
   $("mine-controls").style.display = t === "mine" ? "" : "none";
   for (const k of PANELS) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
@@ -1892,7 +1894,7 @@ function setTab(t){
   $("weekbar").style.display = (t === "more" || t === "coach") ? "none" : "";
   $("welcome").style.display = (t === "mine" && !LEAGUES.length) ? "" : "none";
   const nt = document.querySelector(".note"); if (nt) nt.style.display = (t === "mine" || t === "top" || t === "more") ? "" : "none";
-  const bk = BACK_TO[t]; $("backbar").style.display = bk ? "" : "none";
+  const bk = t === "weather" ? [WX_FROM, WX_FROM === "coach" ? "Coach" : "More"] : BACK_TO[t]; $("backbar").style.display = bk ? "" : "none";
   if (bk){ $("back-label").textContent = bk[1]; $("back").onclick = () => setTab(bk[0]); }
   window.scrollTo(0, 0);
   if (t === "trade"){ refreshTrade(); return; }
