@@ -449,6 +449,11 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .tcol .quick{gap:6px;margin:4px 0 8px}
 .leaguecard .weekchip{width:100%;background:#fff;text-align:left;font:600 16px var(--sans);box-shadow:none;border:1px solid var(--line);justify-content:flex-start}
 .leaguecard .weekchip .chev{margin-left:auto;color:#8a94ab;font-size:22px;line-height:1}
+
+/* player pictures */
+.av{position:relative;overflow:hidden}
+.av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 14%;background:inherit}
+.pbhero .av{width:84px;height:84px}
 </style>
 </head>
 <body>
@@ -1156,11 +1161,27 @@ function navRow(ic, title, sub, onclick){
   const t = el("span"); t.append(el("div", "t", title), el("div", "s", sub));
   b.append(i, t, el("span", "chev", "\u203a")); b.onclick = onclick; return b;
 }
-function avatar(name, team, size){
+let HEAD = {base: "", ids: {}};
+function avatar(name, team, size, pid){
   const a = el("span", "av"), ini = (name || "?").split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join("").toUpperCase();
   a.textContent = ini; a.style.background = `linear-gradient(135deg, hsl(${hashStr(team || name) % 360} 55% 38%), hsl(${(hashStr(team || name) % 360 + 40) % 360} 60% 28%))`;
   if (size){ a.style.width = a.style.height = size + "px"; a.style.fontSize = Math.round(size * .34) + "px"; }
+  const u = pid && HEAD.ids[pid];
+  if (u){
+    const im = document.createElement("img"); im.alt = ""; im.loading = "lazy"; im.decoding = "async"; im.referrerPolicy = "no-referrer";
+    im.onerror = () => im.remove();                       // no picture? the initials underneath show instead
+    im.src = HEAD.base + u; a.append(im);
+  }
   return a;
+}
+async function loadHeadshots(){
+  try {
+    const j = await api("/api/headshots?season=" + encodeURIComponent($("season").value));
+    if (!j || !j.on || !j.ids) return;
+    HEAD = {base: j.base || "", ids: j.ids};
+    if (tab === "coach") renderHub();
+    if (tab === "playbook" && PB.film) renderPlaybook();
+  } catch (e){ /* pictures are a nicety; the initials stay */ }
 }
 
 /* ---- the More tab ---- */
@@ -1213,7 +1234,7 @@ function tile(kind, label, ic, body, onclick){
 function playerBody(p, sub){
   const cell = el("div", "pcell"), txt = el("div");
   txt.append(el("div", "who2", p.player_display_name || p.name), el("div", "pos2", `${p.position} \u2022 ${p.team}`));
-  cell.append(avatar(p.player_display_name || p.name, p.team), txt);
+  cell.append(avatar(p.player_display_name || p.name, p.team, null, p.player_id || p.id), txt);
   return [cell, el("div", "ts", sub)];
 }
 
@@ -1330,7 +1351,7 @@ function renderPlaybook(){
   const f = PB.film, parts = [], ai = PB.ai && !PB.ai.error ? PB.ai : null, p = f.player;
   const hero = el("div", "pbhero"), hb = el("div");
   hb.append(el("div", "nm", p.name), el("div", "sb", `${p.position} \u2022 ${p.team}${p.opponent ? " vs " + p.opponent : ""}  |  Week ${p.week}`));
-  hero.append(avatar(p.name, p.team, 66), hb); parts.push(hero);
+  hero.append(avatar(p.name, p.team, 84, p.player_id), hb); parts.push(hero);
   if (p.on_slate){
     const bottom = f.sections.find(s => s.key === "bottom");
     const take = ai && ai.headline ? ai.headline : (bottom && bottom.lines[0]) || "";
@@ -1949,6 +1970,7 @@ buildCoachPanel();
   const d = await api("/api/defaults").catch(() => ({season: 2025, week: 9}));
   $("season").value = d.season; $("week").value = d.week;
   AI = !!d.ai; YAHOO = !!d.yahoo;
+  loadHeadshots();
   const y = new URLSearchParams(location.search).get("yahoo");
   if (y){ $("platform").value = "yahoo"; history.replaceState({}, "", "/"); }
   showPlatform();
