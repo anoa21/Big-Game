@@ -55,7 +55,9 @@ h1{font:400 26px/1.1 var(--marker);margin:0;letter-spacing:.2px;min-width:0}
   letter-spacing:.14em;color:#fff;background:var(--blue);padding:5px 10px 3px;border-radius:4px;transform:rotate(-1.5deg);margin-top:8px;
   box-shadow:0 2px 0 rgba(0,0,0,.28),0 4px 8px rgba(0,0,0,.18)}
 .sub{color:var(--slate);margin:8px 0 18px;max-width:46ch}
-.tagline{font:400 23px/1.3 var(--marker);margin:10px 0 18px;max-width:46ch;letter-spacing:.2px}
+.tagline{font:400 18px/1.25 var(--marker);margin:12px 0 18px;max-width:46ch;letter-spacing:.2px}
+.tagline .t1{display:block;color:var(--slate);text-wrap:balance}
+.tagline .t2{display:block;font-size:30px;line-height:1.2;margin-top:4px;color:var(--ink)}
 
 .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}
 .pick{display:flex;flex-direction:column;gap:4px}
@@ -275,7 +277,7 @@ details.more b{font-weight:600}
     </picture>
     <h1 class="wordmark"><span class="w1">Big Game</span> <span class="w2">Fantasy</span></h1>
   </div>
-  <p class="tagline">Win the week on the <span class="ul">whiteboard</span>.</p>
+  <p class="tagline"><span class="t1">Stop Managing Your Fantasy Team.</span> <span class="t2">Start <span class="ul">Coaching</span> It.</span></p>
   <div id="account-bar" class="acctbar"></div>
   <div id="auth-panel" class="authpanel" style="display:none"></div>
 
@@ -1607,7 +1609,7 @@ $("tab-weather").onclick = () => setTab("weather");
 $("tab-record").onclick = () => setTab("record");
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
 
-(() => { const t = document.querySelector(".tagline .ul"); if (t){ const s = svgEl(100, 8, underlinePath(hashStr("whiteboard")), "0 0 100 8"); s.setAttribute("preserveAspectRatio", "none"); t.append(s); } })();
+(() => { const t = document.querySelector(".tagline .ul"); if (t){ const s = svgEl(100, 8, underlinePath(hashStr("coaching")), "0 0 100 8"); s.setAttribute("preserveAspectRatio", "none"); t.append(s); } })();
 buildTradePanel();
 buildPlanPanel();
 buildPlaybookPanel();
