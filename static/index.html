@@ -170,6 +170,16 @@ details.more b{font-weight:600}
 .pbmeta{color:var(--slate);margin:2px 0}
 .askrow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .askrow input{flex:1 1 200px;min-width:0}
+.oddsbar{grid-column:1 / -1;height:9px;border:1.5px solid var(--line);border-radius:2px;margin-top:6px}
+.oddsbar i{display:block;height:100%;background:var(--blue);border-radius:1px}
+.row.mine{border-left:3px solid var(--blue);padding-left:10px}
+.row.mine .who{color:var(--blue)}
+.cmp{display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr;gap:0 8px;font-size:15px;margin:6px 0}
+.cmp > div{padding:8px 0;border-bottom:1px solid var(--line)}
+.cmp .h{font-weight:600;color:var(--slate);font-size:13px}
+.cmp .up{color:var(--green);font-weight:600}
+.cmp .down{color:var(--red);font-weight:600}
+.lgpick{margin:8px 0 4px;max-width:100%}
 .versus{font-weight:600;margin:8px 0 0}
 .bigwin{position:relative;display:inline-grid;place-items:center;width:176px;height:88px;margin:10px 0 2px;
   font:400 46px/1 var(--marker);transform:rotate(-1.5deg)}
@@ -253,6 +263,7 @@ details.more b{font-weight:600}
     <button role="tab" id="tab-mine" aria-selected="true">My teams</button>
     <button role="tab" id="tab-playbook" aria-selected="false">Playbook</button>
     <button role="tab" id="tab-plan" aria-selected="false">Game plan</button>
+    <button role="tab" id="tab-league" aria-selected="false">League</button>
     <button role="tab" id="tab-trade" aria-selected="false">Trade</button>
     <button role="tab" id="tab-nextup" aria-selected="false">Next man up</button>
     <button role="tab" id="tab-top" aria-selected="false">Top picks</button>
@@ -295,6 +306,7 @@ details.more b{font-weight:600}
   <div id="trade-panel" style="display:none"></div>
   <div id="plan-panel" style="display:none"></div>
   <div id="playbook-panel" style="display:none"></div>
+  <div id="league-panel" style="display:none"></div>
   <div id="nextup-panel" style="display:none"></div>
   <div id="weather-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
@@ -990,6 +1002,117 @@ function renderNextUp(){
   $("nextup-out").replaceChildren(...parts);
 }
 
+/* ---- league outlook: playoff odds, roster strength, and you against the league ---- */
+let LG = null, LG_CMP = 0;
+const GROUPS4 = ["QB", "RB", "WR", "TE"];
+
+function buildLeaguePanel(){
+  const panel = $("league-panel");
+  panel.append(heading("h2", "League outlook"));
+  const c = el("p", "groupnote"); c.id = "league-ctx"; panel.append(c);
+  const go = el("button", "primary", "Check my league"); go.id = "league-go"; go.onclick = runLeague;
+  const o = el("div"); o.id = "league-out"; o.setAttribute("aria-live", "polite");
+  panel.append(go, o);
+}
+
+function refreshLeague(){
+  const lg = curLeague(), go = $("league-go");
+  if (!lg){ $("league-ctx").textContent = "Load a league under My teams first. Then come back here to see your playoff odds and how your roster stacks up."; go.style.display = "none"; return; }
+  go.style.display = "";
+  $("league-ctx").textContent = lg.league_id
+    ? `League: ${lg.league}. We simulate the rest of the season for every team to estimate playoff odds, and rank every roster.`
+    : `League: ${lg.league}. Roster strength works for this league. Playoff odds need standings and a schedule, which we can only read from Sleeper for now.`;
+}
+
+async function runLeague(){
+  const lg = curLeague(), o = $("league-out"), {season, week} = ctx(), btn = $("league-go");
+  btn.disabled = true; o.replaceChildren(el("p", "status", "Simulating the rest of your league\u2019s season\u2026"));
+  try {
+    if (lg.league_id) LG = await api("/api/league/outlook", {username: $("user").value.trim(), league_id: lg.league_id, season: +season, week: +week});
+    else if (lg.teams && lg.teams.length) LG = await api("/api/league/strength", {season: +season, week: +week, slots: lg.slots || undefined, replacement: lg.replacement || undefined,
+      teams: lg.teams.map(t => ({name: t.name, mine: t.mine, roster: t.roster}))});
+    else throw new Error("We can\u2019t see the other teams in this league yet.");
+    const mine = LG.teams.findIndex(t => t.mine), best = LG.teams.slice().sort((a, b) => a.rank.overall - b.rank.overall).find(t => !t.mine);
+    LG_CMP = LG.teams.indexOf(best); renderLeague();
+  } catch (e){ o.replaceChildren(el("p", "status err", e.message)); }
+  finally { btn.disabled = false; }
+}
+
+const ppgFmt = x => x.toFixed(1);
+
+function teamRow(t, rankNo){
+  const r = el("div", "row" + (t.mine ? " mine" : ""));
+  const who = el("div", "who"); if (rankNo) who.append(el("span", "rank", rankNo + "."));
+  who.append(document.createTextNode(t.name + (t.mine ? " (you)" : ""))); r.append(who);
+  return r;
+}
+
+function renderCompare(box){
+  box.replaceChildren();
+  const me = LG.teams.find(t => t.mine), them = LG.teams[LG_CMP];
+  if (!me || !them || me === them) return;
+  const grid = el("div", "cmp");
+  ["Spot", "You", them.name.length > 12 ? them.name.slice(0, 11) + "\u2026" : them.name, "Edge"].forEach(t => grid.append(el("div", "h", t)));
+  const rows = [["Lineup", me.ppg_projected, them.ppg_projected], ...GROUPS4.map(p => [p, me.group[p], them.group[p]]), ["Bench depth", me.depth, them.depth]];
+  rows.forEach(([label, a, b]) => {
+    const d = a - b, cls = d >= 0.5 ? "up" : d <= -0.5 ? "down" : "";
+    grid.append(el("div", "", label), el("div", "", ppgFmt(a)), el("div", "", ppgFmt(b)), el("div", cls, (d > 0 ? "+" : "") + ppgFmt(d)));
+  });
+  box.append(grid, el("p", "groupnote", "Points per game each team\u2019s starters are projected to score. Green means you have the edge."));
+}
+
+function renderLeague(){
+  const parts = [], me = LG.teams.find(t => t.mine), n = LG.teams.length;
+  if (LG.playoff_teams){
+    const kind = me.playoff >= 0.65 ? "strong" : me.playoff >= 0.25 ? "solid" : "risky";
+    const big = el("div", "bigwin " + kind);
+    big.append(svgEl(176, 88, ovalPath(176, 88, hashStr(me.name + "po"))), el("span", "", pct0(me.playoff)));
+    parts.push(el("div", "versus", `${me.name}, ${me.wins}-${me.losses}${me.ties ? "-" + me.ties : ""}`), big,
+      el("p", "winlabel", `chance you make the playoffs. The top ${LG.playoff_teams} of ${n} teams get in.`));
+    parts.push(el("p", "", `With ${LG.remaining} regular-season ${LG.remaining === 1 ? "game" : "games"} left, you\u2019re projected to finish with about ${me.exp_wins} wins, most often around the ${ordinal(me.seed_median)} seed.`));
+    if (LG.swing.length){
+      const s = LG.swing[0];
+      parts.push(heading("h3", "The game that matters most"));
+      parts.push(el("p", "", `Week ${s.week} against ${s.opponent}. A win takes your playoff odds to ${pct0(s.if_win)}; a loss drops them to ${pct0(s.if_lose)}. You\u2019re about ${pct0(s.win_chance)} to win it.`));
+    }
+    parts.push(heading("h3", "The playoff race"));
+    LG.teams.forEach((t, i) => {
+      const r = teamRow(t, i + 1);
+      r.append(el("div", "meta", `${t.wins}-${t.losses}${t.ties ? "-" + t.ties : ""}, ${Math.round(t.pf).toLocaleString()} points, about ${t.exp_wins} wins projected`));
+      const right = el("div", "right"); right.append(el("div", "pct", pct0(t.playoff))); r.append(right);
+      const bar = el("div", "oddsbar"), fill = el("i"); fill.style.width = Math.max(1, t.playoff * 100) + "%"; bar.append(fill); r.append(bar);
+      parts.push(r);
+    });
+    parts.push(el("p", "groupnote", `Dividing line: the top ${LG.playoff_teams} make it. Ties break on points scored.`));
+  }
+  parts.push(heading("h3", "Roster strength"));
+  parts.push(el("p", "groupnote", "Each team\u2019s best starting lineup, using your league\u2019s real lineup spots and our rest-of-season projections."));
+  LG.teams.slice().sort((a, b) => a.rank.overall - b.rank.overall).forEach(t => {
+    const r = teamRow(t, t.rank.overall);
+    r.append(el("div", "meta", GROUPS4.map(p => `${p} ${ordinal(t.rank[p])}`).join(", ") + (t.top.length ? `. Led by ${t.top.join(", ")}.` : "")));
+    const right = el("div", "right"); right.append(el("div", "pct", ppgFmt(t.ppg_projected)), el("div", "caption", "points a game")); r.append(right);
+    parts.push(r);
+  });
+  parts.push(heading("h3", "Your team against the league"));
+  LG.verdict.forEach(v => parts.push(el("p", "pbline", v)));
+  const avg = LG.averages, lines = el("div", "cmp");
+  ["Spot", "You", "League avg", "Rank"].forEach(t => lines.append(el("div", "h", t)));
+  [["Lineup", me.ppg_projected, avg.ppg, me.rank.overall], ...GROUPS4.map(p => [p, me.group[p], avg[p], me.rank[p]]), ["Bench depth", me.depth, avg.depth, me.rank.depth]].forEach(([l, a, b, rk]) => {
+    const d = a - b, cls = d >= 0.5 ? "up" : d <= -0.5 ? "down" : "";
+    lines.append(el("div", "", l), el("div", cls, ppgFmt(a)), el("div", "", ppgFmt(b)), el("div", "", `${ordinal(rk)} of ${n}`));
+  });
+  parts.push(lines);
+  parts.push(heading("h3", "Compare with another team"));
+  const sel = el("select", "lgpick"); sel.setAttribute("aria-label", "Compare with");
+  LG.teams.forEach((t, i) => { if (!t.mine){ const o = el("option", "", `${t.name} (${ordinal(t.rank.overall)} in strength)`); o.value = i; sel.append(o); } });
+  sel.value = LG_CMP; const box = el("div");
+  sel.onchange = () => { LG_CMP = +sel.value; renderCompare(box); };
+  parts.push(sel, box);
+  parts.push(el("p", "note", "Strength comes from our projections for each team\u2019s current roster. Playoff odds simulate every remaining game 5,000 times, using a blend of what each roster is projected to score and what the team has actually scored. They assume rosters stay as they are (no future trades or pickups), ignore division rules, and break ties on points scored. Treat them as a guide, not a promise."));
+  $("league-out").replaceChildren(...parts);
+  renderCompare(box);
+}
+
 /* ---- stadium and weather: the forecast at kickoff for every game ---- */
 let WX = null, WX_KEY = "";
 
@@ -1188,15 +1311,16 @@ function showPlatform(){
 }
 function setTab(t){
   tab = t;
-  for (const k of ["mine", "playbook", "plan", "trade", "nextup", "top", "weather", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
+  for (const k of ["mine", "playbook", "plan", "league", "trade", "nextup", "top", "weather", "record"]) $("tab-" + k).setAttribute("aria-selected", t === k);
   centerTab(t);
   $("mine-controls").style.display = t === "mine" ? "" : "none";
-  for (const k of ["trade", "plan", "playbook", "nextup", "weather", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
+  for (const k of ["trade", "plan", "playbook", "league", "nextup", "weather", "record"]) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
   if (t === "trade"){ refreshTrade(); return; }
   if (t === "plan"){ refreshPlan(); return; }
   if (t === "playbook"){ showPlaybook(); return; }
+  if (t === "league"){ refreshLeague(); return; }
   if (t === "nextup"){ showNextUp(); return; }
   if (t === "weather"){ showWeather(); return; }
   if (t === "record"){ loadRecord(); return; }
@@ -1211,6 +1335,7 @@ $("tab-top").onclick = () => setTab("top");
 $("tab-trade").onclick = () => setTab("trade");
 $("tab-plan").onclick = () => setTab("plan");
 $("tab-playbook").onclick = () => setTab("playbook");
+$("tab-league").onclick = () => setTab("league");
 $("tab-nextup").onclick = () => setTab("nextup");
 $("tab-weather").onclick = () => setTab("weather");
 $("tab-record").onclick = () => setTab("record");
@@ -1219,6 +1344,7 @@ $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/log
 buildTradePanel();
 buildPlanPanel();
 buildPlaybookPanel();
+buildLeaguePanel();
 document.querySelector(".tabs").addEventListener("scroll", tabHint);
 window.addEventListener("resize", tabHint);
 buildNextUpPanel();
