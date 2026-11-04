@@ -32,6 +32,30 @@ from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter()
+
+# ---- guests and accounts: which features need a free account ------------------------------------------
+# GATED_FEATURES (environment variable, comma separated) chooses what guests can't use. Change it on Render and
+# restart; no code change needed. Names: plan, league, trade, playbook, coach_ai. Empty means everything is open.
+FEATURES = {"plan": "Game plan", "league": "League outlook", "trade": "Trade analyzer", "playbook": "Coach's Playbook", "coach_ai": "AI coach"}
+DEFAULT_GATED = "plan,league,coach_ai"
+
+
+def gated():
+    raw = os.getenv("GATED_FEATURES", DEFAULT_GATED)
+    return [f for f in (x.strip() for x in raw.split(",")) if f in FEATURES]
+
+
+def require(request, feature):
+    """Raise 401 if `feature` is locked for guests and nobody is signed in. If accounts can't be checked (the database
+    is down), the feature stays open: a broken login service must never lock everyone out of the app."""
+    if feature not in gated():
+        return
+    try:
+        user = current_user(request)
+    except Exception:
+        return
+    if not user:
+        raise HTTPException(401, f"Sign in to use the {FEATURES[feature]}. It's free.")
 SESSION_DAYS = 30
 MAX_LEAGUES = 8
 COOKIE = "bg_session"
@@ -301,14 +325,14 @@ class LeagueIn(BaseModel):
 def me(request: Request):
     try:
         u = current_user(request)
-        out = {"user": None, "leagues": [], "persistent": persistent()}
+        out = {"user": None, "leagues": [], "persistent": persistent(), "locked": gated()}
         if u:
             with engine().connect() as conn:
                 out["user"] = {"username": u["display"]}
                 out["leagues"] = league_rows(conn, u["id"])
         return out
     except HTTPException:
-        return {"user": None, "leagues": [], "persistent": persistent(), "unavailable": True}
+        return {"user": None, "leagues": [], "persistent": persistent(), "locked": [], "unavailable": True}
 
 
 @router.post("/api/auth/signup")
@@ -326,7 +350,7 @@ def signup(c: Creds, request: Request, response: Response):
             start_session(conn, response, request, uid)
     except sa.exc.IntegrityError:
         raise HTTPException(400, "That username is taken. Try another one.")
-    return {"user": {"username": name}, "recovery_code": code, "leagues": [], "persistent": persistent()}
+    return {"user": {"username": name}, "recovery_code": code, "leagues": [], "persistent": persistent(), "locked": gated()}
 
 
 @router.post("/api/auth/login")
@@ -341,7 +365,7 @@ def login(c: Creds, request: Request, response: Response):
             fail(request, name)
             raise HTTPException(401, "That username and password don't match.")
         start_session(conn, response, request, row.id)
-        return {"user": {"username": row.display}, "leagues": league_rows(conn, row.id), "persistent": persistent()}
+        return {"user": {"username": row.display}, "leagues": league_rows(conn, row.id), "persistent": persistent(), "locked": gated()}
 
 
 @router.post("/api/auth/logout")
@@ -374,7 +398,7 @@ def recover(r: Recover, request: Request, response: Response):
         conn.execute(sessions.delete().where(sessions.c.user_id == row.id))           # sign out everywhere else
         start_session(conn, response, request, row.id)
         return {"user": {"username": row.display}, "recovery_code": new_code, "leagues": league_rows(conn, row.id),
-                "persistent": persistent()}
+                "persistent": persistent(), "locked": gated()}
 
 
 @router.post("/api/auth/password")
