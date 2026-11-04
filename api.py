@@ -45,6 +45,12 @@ app = FastAPI(title="Big Game")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 if accounts is not None:
     app.include_router(accounts.router)
+def gate(request: Request, feature: str):
+    """Guests can't use features the owner has locked (see accounts.gated). No accounts module, no locks."""
+    if accounts is not None:
+        accounts.require(request, feature)
+
+
 STATIC = Path(__file__).parent / "static"
 BASE_TTL, ENRICH_TTL = 6 * 3600, 15 * 60   # model every 6h, injuries and news every 15min
 _base, _enriched, _lock = {}, {}, threading.Lock()
@@ -365,7 +371,8 @@ class TradeReq(BaseModel):
 
 
 @app.post("/api/trade")
-def trade(req: TradeReq):
+def trade(req: TradeReq, request: Request):
+    gate(request, "trade")
     if not req.give or not req.get:
         raise HTTPException(400, "Add at least one player to each side.")
     if len(req.give) > 5 or len(req.get) > 5:
@@ -399,7 +406,8 @@ class MatchupReq(BaseModel):
 
 
 @app.post("/api/matchup")
-def matchup_view(req: MatchupReq):
+def matchup_view(req: MatchupReq, request: Request):
+    gate(request, "plan")
     try:
         uid = sleeper.get_user_id(req.username)
         lg = sleeper.get_league(req.league_id)
@@ -517,7 +525,8 @@ def _film(season, week, player_id):
 
 
 @app.get("/api/playbook")
-def playbook_view(season: int, week: int, player_id: str):
+def playbook_view(season: int, week: int, player_id: str, request: Request):
+    gate(request, "playbook")
     try:
         d, sections, conf = _film(season, week, player_id)
     except Exception as e:
@@ -544,6 +553,7 @@ class AskReq(BaseModel):
 
 @app.post("/api/playbook/ask")
 def playbook_ask(req: AskReq, request: Request):
+    gate(request, "coach_ai")
     if not playbook.ai_enabled():
         raise HTTPException(503, "The AI coach isn't turned on for this site.")
     who, now = _visitor(request), time.time()
@@ -603,7 +613,8 @@ def _roster_ids(roster, sl_players, table, idx):
 
 
 @app.post("/api/league/outlook")
-def league_outlook(req: OutlookReq):
+def league_outlook(req: OutlookReq, request: Request):
+    gate(request, "league")
     try:
         uid = sleeper.get_user_id(req.username)
         lg = sleeper.get_league(req.league_id)
@@ -708,7 +719,8 @@ class StrengthReq(BaseModel):
 
 
 @app.post("/api/league/strength")
-def league_strength(req: StrengthReq):
+def league_strength(req: StrengthReq, request: Request):
+    gate(request, "league")
     """Roster strength only, for leagues where we can see every roster but not the standings (ESPN)."""
     if not 2 <= len(req.teams) <= 20:
         raise HTTPException(400, "That doesn't look like a full league.")
