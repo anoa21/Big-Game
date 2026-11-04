@@ -557,6 +557,31 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .newsbox h4{margin:0 0 4px;font:400 19px/1.2 var(--marker)}
 .newsbox p{margin:0;font-size:15px}
 .newsbox .ft{font-size:12.5px;color:var(--slate);margin-top:6px}
+
+/* ================= How it works ================= */
+.howintro{font-size:15.5px;margin:0 0 14px}
+.faq{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);margin:0 0 10px;padding:0 14px}
+.faq summary{display:flex;align-items:center;gap:12px;min-height:64px;cursor:pointer;list-style:none;padding:8px 0}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary .ic{flex:0 0 auto;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#e8effd;color:var(--blue)}
+.faq summary .ic svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.faq summary .t{font-weight:700;font-size:16.5px}
+.faq summary .s{font-size:13px;color:var(--slate);font-weight:400}
+.faq summary .chev{margin-left:auto;color:#8a94ab;font-size:22px;line-height:1;transition:transform .15s}
+.faq[open] summary .chev{transform:rotate(90deg)}
+.faq .body{padding:0 0 14px}
+.faq .body p{margin:0 0 10px;font-size:15px}
+.faq .body ul{margin:0 0 10px;padding-left:20px;font-size:15px}
+.faq .body li{margin:0 0 5px}
+.faq .body b{font-weight:700}
+.faq .body dl{margin:0}
+.faq .body dt{font-weight:700;margin-top:10px}
+.faq .body dd{margin:2px 0 0;color:#39445c;font-size:14.5px}
+.faq .try{margin-top:2px}
+.howfoot{font-size:13px;color:var(--slate);margin:14px 2px 0}
+.welcome .howlink{color:#9fbcff;font-weight:600;padding:6px 0 0;min-height:0}
+.note .howlink{display:inline;padding:0;min-height:0;color:var(--blue);font-weight:600}
+.faq .try{color:var(--blue);font-weight:700;text-decoration:none;padding:8px 0;min-height:44px;font-size:15.5px}
 </style>
 </head>
 <body>
@@ -595,6 +620,7 @@ details.film h3{margin:14px 0 4px;font-size:18px}
   <section id="welcome" class="welcome">
     <p class="tagline"><span class="t1">Stop Managing Your Fantasy Team.</span> <span class="t2">Start <span class="ul">Coaching</span> It.</span></p>
     <p class="welcome-sub">Load your league and your coach shows who to start, who to sit, and who to pick up.</p>
+    <button type="button" class="link howlink" id="welcome-how">How it works ›</button>
   </section>
   <div class="controls" id="weekbar">
     <div class="pick"><label for="season">Season (year)</label>
@@ -665,11 +691,11 @@ details.film h3{margin:14px 0 4px;font-size:18px}
   <div id="weather-panel" style="display:none"></div>
   <div id="record-panel" style="display:none"></div>
   <div id="injuries-panel" style="display:none"></div>
+  <div id="how-panel" style="display:none"></div>
   <div id="coach-panel" style="display:none"></div>
   <div id="more-panel" style="display:none"></div>
 
   <div id="out" aria-live="polite"></div>
-  <p class="note">A big game means 25+ PPR points for QBs, 18+ for RBs and WRs, 14+ for TEs. Strong is a 40% chance or better, Solid is 20 to 39%, and Risky is under 20%. Tags come from the odds alone. The odds also account for the game’s betting lines (how many points each team is expected to score) and, for upcoming outdoor games, forecast wind. The matchup line ranks the opposing defense by fantasy points it allowed to that position over its last 6 games, across all 32 teams. Football is high-variance, so treat all of this as odds, not a promise.</p>
 </main>
 <nav id="bottomnav" aria-label="Main"><div class="in">
   <button type="button" data-nav="mine" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3a4 4 0 0 1-8 0z"/></svg><span>Team</span></button>
@@ -1258,7 +1284,11 @@ const ICONS = {
   warn: '<path d="M12 4 3 20h18z"/><path d="M12 10v5M12 17.5h.01"/>',
   plus: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
   wind: '<path d="M3 9h10a3 3 0 1 0-3-3M3 13h14a3 3 0 1 1-3 3M3 17h7"/>',
-  cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'
+  cal: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+  shirt: '<path d="M8 3 3 6l2 4 2-1v12h10V9l2 1 2-4-5-3a4 4 0 0 1-8 0z"/>',
+  clip: '<path d="M9 3.5h6V7H9z"/><path d="M8 5H6.5A1.5 1.5 0 0 0 5 6.5v13A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 17.5 5H16"/><path d="M9 12h6M9 16h4"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  bandage: '<path d="m4.5 14.5 10-10a3.5 3.5 0 0 1 5 5l-10 10a3.5 3.5 0 0 1-5-5z"/><path d="m10 8 6 6"/>'
 };
 const icon = k => { const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); s.innerHTML = ICONS[k]; return s; };
 function navRow(ic, title, sub, onclick){
@@ -1406,6 +1436,92 @@ function renderInjuries(lg){
   $("inj-out").replaceChildren(...parts);
 }
 
+/* ---- How it works ---- */
+const HOW = [
+  {icon: "info", title: "The big idea", sum: "What the percentages mean", open: true, paras: [
+    "Big Game Fantasy estimates how likely each of your players is to have a <b>big game</b> this week, then gives you tools to act on it.",
+    "A big game means 25 or more PPR points for a quarterback, 18 or more for a running back or receiver, and 14 or more for a tight end."],
+   bullets: ["<b>Strong</b> means a 40% chance or better.", "<b>Solid</b> means 20 to 39%.", "<b>Risky</b> means under 20%.",
+     "Most players only have a big game about one week in ten, so even a Solid tag is a real signal."],
+   after: ["How we get the number: a model learns from past seasons, and we also simulate this week thousands of times using each player\u2019s recent games and the defense he faces. The two are blended. We then adjust for how many points the game\u2019s betting line says each team will score, and for wind in open-air stadiums.",
+     "These are odds, not predictions. Football is high-variance, and any single week can go the other way."]},
+  {icon: "shirt", title: "Team: your lineup", sum: "Your players and their odds", tab: "mine", label: "Open Team", paras: [
+    "Connect your Sleeper or ESPN league, or just type your players in. You see them grouped by position."],
+   bullets: ["<b>Odds and tag</b> for each player's chance of a big game.", "<b>Matchup line</b> shows how many fantasy points the opposing defense allows to that position, ranked across all 32 teams.",
+     "<b>Range and projected stats</b> open up under each player.", "<b>Injury news</b> appears under the status when there is some.", "<b>Waiver wire</b> lists the best available free agents in your league (Sleeper and ESPN)."]},
+  {icon: "clip", title: "Coach home", sum: "Your week at a glance", tab: "coach", label: "Open Coach", paras: ["Six tiles fill in from your league:"],
+   bullets: ["<b>Win odds:</b> your chance to beat your actual opponent this week (Sleeper). Tap it to run the simulation.", "<b>Best start:</b> your player with the best big-game odds.",
+     "<b>Sit warning:</b> a player who is Questionable, Doubtful, or Out.", "<b>Waiver alert:</b> the best free agent available.", "<b>League outlook:</b> your playoff odds.", "<b>Weather note:</b> wind that could hurt your passing game."]},
+  {icon: "book", title: "Coach\u2019s Playbook", sum: "Film on any one player", tab: "playbook", label: "Open the Playbook", paras: [
+    "The Playbook explains why a player\u2019s odds are what they are."],
+   bullets: ["<b>Matchup:</b> how many points the defense allows to his position.", "<b>Workload:</b> his recent touches or targets.", "<b>Game script:</b> whether the game leans toward running or passing.",
+     "<b>Health:</b> his status, with the latest news.", "<b>Odds, likely range, and confidence</b> at the bottom, with the reasons for any low confidence."],
+   after: ["If the site owner has turned on the AI coach, you can ask a question and it answers using only the facts shown. It can be wrong, and it never gives betting advice."]},
+  {icon: "bandage", title: "Injury report", sum: "The latest on your players", tab: "injuries", label: "Open the Injury report", paras: [
+    "This lists every player on your roster with an injury designation or a practice note, worst first, with the news, the expected return when known, and when it was updated."],
+   after: ["It combines ESPN\u2019s injury news with the official NFL report. Where they disagree, we show the more cautious one. The official report for a new week usually posts on Wednesday, so early in the week the news feed fills the gap. The screen tells you which sources it used. Injuries change fast, so check again near kickoff."]},
+  {icon: "swap", title: "Trade analyzer", sum: "Is this trade good for you?", tab: "trade", label: "Open the Trade analyzer", paras: [
+    "Pick the players you would give and get. We estimate each one\u2019s points for the rest of the season, adjusting for bye weeks, injuries, and the schedule left, then measure how your best starting lineup changes."],
+   bullets: ["<b>Lineup</b> is the percentage change in your best lineup.", "<b>Season points</b> is the change in total points.", "The <b>recommendation</b> runs from Accept to Avoid.",
+     "Add the other manager\u2019s team and you also see what the trade does for them."],
+   after: ["It cannot know what the other manager needs or what your league\u2019s trade rules allow, so treat the verdict as one input."]},
+  {icon: "board", title: "Game plan", sum: "Raise your win chance this week", tab: "plan", label: "Open the Game plan", paras: [
+    "Sleeper leagues only. We simulate this week\u2019s matchup against your real opponent thousands of times to get your win chance."],
+   bullets: ["Up to three <b>bench swaps</b> that raise your chances the most.", "<b>Waiver pickups</b> tested against your matchup, with a suggested player to drop if your roster is full.",
+     "Players whose games have already started are locked and left out."],
+   after: ["It does not know your league\u2019s waiver rules, so a claim can still lose to another team\u2019s priority or budget."]},
+  {icon: "up", title: "Next man up", sum: "Who gains when a starter is out", tab: "nextup", label: "Open Next man up", paras: [
+    "When a starter is out, someone else gets his carries or targets. This screen shows who, and roughly how many extra points that is worth. It is shown as its own note and is not folded into the percentages."]},
+  {icon: "trophy", title: "League: playoffs and rankings", sum: "How your team stacks up", tab: "league", label: "Open League", paras: [
+    "<b>Playoff odds</b> (Sleeper): we simulate the rest of your league\u2019s season 5,000 times using the real schedule and standings, and count how often you finish in the playoff spots. You also see the one game that moves your odds the most.",
+    "<b>Roster strength</b> (Sleeper and ESPN): every team\u2019s best lineup, ranked, with a position-by-position comparison. You can compare yourself with any other team."],
+   after: ["It assumes rosters stay as they are, with no future trades or pickups, and it ignores division rules."]},
+  {icon: "cloud", title: "Weather", sum: "Kickoff forecasts", tab: "weather", label: "Open Weather", paras: [
+    "Forecasts for every game at kickoff, plus the stadium type. Strong wind lowers passing odds in open-air stadiums, and that adjustment is already in the percentages. Rain is shown but not adjusted for."]},
+  {icon: "star", title: "Top picks and Track record", sum: "League-wide picks, and how we have done", tab: "top", label: "Open Top picks", paras: [
+    "<b>Top picks</b> ranks the players with the best big-game odds across the NFL this week.",
+    "<b>Track record</b> grades our picks against what actually happened each week, so you can judge the odds for yourself. Week 1 is not graded, because there are no games yet to learn from."]},
+  {icon: "lock", title: "Accounts and saved leagues", sum: "Keep your leagues between visits", acct: true, label: "Open my account", paras: [
+    "Create an account to keep your saved leagues on every device. We store your username, a scrambled copy of your password, and the leagues you choose to save. We never store your ESPN cookies or any fantasy-site password, and we do not ask for an email address."],
+   after: ["Save the recovery code you are shown at sign-up. It is the only way to reset a forgotten password. You can delete your account at any time."]},
+  {icon: "chart", title: "Where the information comes from", sum: "Our sources", paras: ["Everything shown comes from public data:"],
+   bullets: ["<b>Player stats, schedules, and betting lines:</b> the open nflverse data.", "<b>Leagues:</b> Sleeper directly, and ESPN or Yahoo when you connect them.",
+     "<b>Injuries:</b> the official NFL report plus ESPN\u2019s injury news.", "<b>Weather:</b> a public forecast service, for each stadium at kickoff.", "<b>Player photos:</b> links published with the player data."]},
+  {icon: "warn", title: "What this app cannot do", sum: "Know the limits", paras: ["Please keep these in mind:"],
+   bullets: ["It gives <b>odds, not guarantees</b>, and it is not betting advice.", "It cannot see depth charts, a coach\u2019s plans, or news that has not been published yet.",
+     "Injury news can change within minutes. Check again near kickoff.", "It cannot know your league\u2019s waiver rules or what another manager needs in a trade.",
+     "ESPN and Yahoo leagues have fewer features than Sleeper, because those sites do not share as much data."]},
+  {icon: "info", title: "Glossary", sum: "Terms used in the app", terms: [
+    ["PPR", "Points per reception. Every catch is worth a point."], ["Big game", "25+ points for a QB, 18+ for an RB or WR, 14+ for a TE."],
+    ["Strong, Solid, Risky", "Our tags for a 40%+, 20 to 39%, and under 20% chance of a big game."], ["Questionable, Doubtful, Out", "Official injury designations. We count a Questionable player as about 70% likely to play, a Doubtful player as about 5%, and an Out player as 0%."],
+    ["Game script", "How the game is expected to flow. A team that is ahead tends to run more, and a team that is behind tends to pass more."], ["Implied points", "How many points the betting line says a team will score."],
+    ["Bye week", "A week a team does not play."], ["Waiver wire", "The pool of players no one in your league has on a roster."], ["Rest of season", "The games a player has left this season."]]}
+];
+
+function buildHowPanel(){
+  const p = $("how-panel");
+  p.append(heading("h2", "How it works"));
+  p.append(el("p", "howintro", "A plain-language guide to every part of the app. Tap a section to open it."));
+  HOW.forEach(s => {
+    const d = el("details", "faq"); if (s.open) d.open = true;
+    const sm = el("summary"), ic = el("span", "ic"), tx = el("span");
+    ic.append(icon(s.icon)); tx.append(el("div", "t", s.title), el("div", "s", s.sum)); sm.append(ic, tx, el("span", "chev", "\u203a")); d.append(sm);
+    const body = el("div", "body");
+    const para = t => { const x = el("p"); x.innerHTML = t; return x; };
+    (s.paras || []).forEach(t => body.append(para(t)));
+    if (s.bullets){ const ul = el("ul"); s.bullets.forEach(t => { const li = el("li"); li.innerHTML = t; ul.append(li); }); body.append(ul); }
+    (s.after || []).forEach(t => body.append(para(t)));
+    if (s.terms){ const dl = el("dl"); s.terms.forEach(([k, v]) => dl.append(el("dt", "", k), el("dd", "", v))); body.append(dl); }
+    if (s.tab || s.acct){
+      const b = el("button", "link try", s.label + " \u203a"); b.type = "button";
+      b.onclick = () => { if (s.acct){ setTab("more"); if (!ACCT.user) acctOpen(true); } else setTab(s.tab); };
+      body.append(b);
+    }
+    d.append(body); p.append(d);
+  });
+  p.append(el("p", "howfoot", "Big Game Fantasy is for entertainment and information. Nothing here is betting or financial advice."));
+}
+
 /* ---- the More tab ---- */
 function buildMorePanel(){
   const p = $("more-panel");
@@ -1416,6 +1532,7 @@ function buildMorePanel(){
   p.append(navRow("star", "Top picks", "The players most likely to have a big game this week", () => setTab("top")));
   p.append(navRow("cloud", "Weather", "Kickoff forecasts for every game", () => { WX_FROM = "more"; setTab("weather"); }));
   p.append(navRow("chart", "Track record", "How our odds have done so far this season", () => setTab("record")));
+  p.append(navRow("info", "How it works", "A plain-language guide to every part of the app", () => setTab("how")));
 }
 /* ---- the Coach home screen ---- */
 const HUB = {plan: null, planKey: ""};
@@ -2139,11 +2256,11 @@ function showPlatform(){
   for (const k of ["sleeper", "espn", "yahoo", "manual"]) $("p-" + k).classList.toggle("on", k === p);
   if (p === "yahoo" && !YAHOO) $("yahoo-msg").textContent = "Yahoo isn't set up on this site yet.";
 }
-const PANELS = ["trade", "plan", "playbook", "league", "nextup", "weather", "record", "coach", "more", "injuries"];
+const PANELS = ["trade", "plan", "playbook", "league", "nextup", "weather", "record", "coach", "more", "injuries", "how"];
 let WX_FROM = "more";          // Weather sits under More, but the Coach home's weather tile can open it too
-const NAV_OF = {mine: "mine", coach: "coach", injuries: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "more",
+const NAV_OF = {mine: "mine", coach: "coach", how: "more", injuries: "coach", playbook: "coach", plan: "coach", trade: "coach", nextup: "coach", weather: "more",
   league: "league", top: "more", record: "more", more: "more"};
-const BACK_TO = {injuries: ["coach", "Coach"], playbook: ["coach", "Coach"], plan: ["coach", "Coach"], trade: ["coach", "Coach"], nextup: ["coach", "Coach"],
+const BACK_TO = {how: ["more", "More"], injuries: ["coach", "Coach"], playbook: ["coach", "Coach"], plan: ["coach", "Coach"], trade: ["coach", "Coach"], nextup: ["coach", "Coach"],
   weather: ["more", "More"], top: ["more", "More"], record: ["more", "More"]};
 function setTab(t){
   tab = t;
@@ -2155,7 +2272,7 @@ function setTab(t){
   for (const k of PANELS) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
-  $("weekbar").style.display = (t === "more" || t === "coach") ? "none" : "";
+  $("weekbar").style.display = (t === "more" || t === "coach" || t === "how") ? "none" : "";
   $("welcome").style.display = (t === "mine" && !LEAGUES.length) ? "" : "none";
   const nt = document.querySelector(".note"); if (nt) nt.style.display = (t === "mine" || t === "top" || t === "more") ? "" : "none";
   const bk = t === "weather" ? [WX_FROM, WX_FROM === "coach" ? "Coach" : "More"] : BACK_TO[t]; $("backbar").style.display = bk ? "" : "none";
@@ -2187,6 +2304,8 @@ $("tab-nextup").onclick = () => setTab("nextup");
 $("tab-weather").onclick = () => setTab("weather");
 $("tab-record").onclick = () => setTab("record");
 document.querySelectorAll("#bottomnav [data-nav]").forEach(b => { b.onclick = () => setTab(b.dataset.nav); });
+$("welcome-how").onclick = () => setTab("how");
+(() => { const n = document.querySelector(".note"); if (n){ const b = el("button", "link howlink", "How this works \u203a"); b.type = "button"; b.onclick = () => setTab("how"); n.append(document.createTextNode(" "), b); } })();
 $("acct-btn").onclick = () => { setTab("more"); if (!ACCT.user) acctOpen(true); };
 ["season", "week"].forEach(id => $(id).addEventListener("change", () => { if (tab === "coach") renderHub(); }));
 $("yahoo-connect").onclick = () => { if (YAHOO) location.href = "/auth/yahoo/login"; };
@@ -2202,6 +2321,7 @@ buildNextUpPanel();
 buildWeatherPanel();
 buildRecordPanel();
 buildMorePanel();
+buildHowPanel();
 buildInjuriesPanel();
 buildCoachPanel();
 
