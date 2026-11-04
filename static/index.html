@@ -1149,7 +1149,8 @@ function renderAccountBar(){
 
 function field(label, type, id, auto){
   const wrap = document.createDocumentFragment(), l = el("label", "", label); l.htmlFor = id;
-  const i = el("input"); i.type = type; i.id = id; i.name = id.replace("a-", ""); i.autocomplete = auto; i.required = true;
+  const NAMES = {"a-user": "username", "a-pass": "password", "a-new": "new-password", "a-cur": "current-password", "a-del": "password", "a-rc": "recovery-code"};
+  const i = el("input"); i.type = type; i.id = id; i.name = NAMES[id] || id.replace("a-", ""); i.autocomplete = auto; i.required = true;
   if (type === "text") { i.autocapitalize = "none"; i.spellcheck = false; }
   wrap.append(l, i); return wrap;
 }
@@ -1157,14 +1158,18 @@ function field(label, type, id, auto){
 async function authCall(path, body, after){
   if (ACCT.busy) return; ACCT.busy = true; ACCT.err = ""; if (body && body.username) ACCT.lastUser = body.username; renderAuthPanel();
   try { const j = await api(path, body); ACCT.busy = false; after(j); }
-  catch (e){ ACCT.busy = false; ACCT.err = e.message; renderAuthPanel(); }
+  catch (e){
+    ACCT.busy = false; ACCT.err = e.message;
+    if (!ACCT.persistent && /don.t match/.test(e.message)) ACCT.err += " If you created this account a while ago, it may have been erased when the site restarted. Try creating it again.";
+    renderAuthPanel();
+  }
 }
 
 function renderAuthPanel(){
   const p = $("auth-panel"); p.style.display = ACCT.open ? "" : "none"; p.replaceChildren();
   if (!ACCT.open) return;
   const err = () => ACCT.err ? [el("p", "status err", ACCT.err)] : [];
-  if (!ACCT.persistent) p.append(el("p", "groupnote", "Heads up: this site isn\u2019t connected to a permanent database yet, so accounts can disappear when it restarts."));
+  if (!ACCT.persistent) p.append(el("p", "status err", "Heads up: this site isn\u2019t connected to permanent storage yet, so accounts and sign-ins are erased whenever the site restarts or goes to sleep. You would have to create your account again."));
 
   if (ACCT.code){                                          // shown once, right after sign-up or a reset
     p.append(heading("h3", "Save your recovery code"));
