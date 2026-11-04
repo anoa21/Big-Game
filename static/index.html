@@ -605,6 +605,13 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .perks{margin:6px 0 4px;padding-left:20px;font-size:14.5px;color:#2d364a}
 .perks li{margin:0 0 3px}
 .groupnote.why{color:var(--blue);font-weight:600}
+
+/* Coach home banner: stadium photo */
+.hero{background:#070f26 url(/static/hero-stadium.webp?v=1) right center / cover no-repeat;min-height:142px}
+.hero::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(4,8,22,.5) 0%,rgba(4,8,22,.12) 58%,rgba(4,8,22,0) 100%)}
+.hero .herotitle{position:relative;z-index:1;font-size:38px}
+.hero .herotitle svg{width:190px}
+@media (max-width:360px){.hero .herotitle{font-size:31px}.hero .herotitle svg{width:150px}}
 </style>
 </head>
 <body>
@@ -1635,15 +1642,6 @@ const leagueKeyNow = () => { const lg = curLeague(), c = ctx(); return lg ? `${l
 function buildCoachPanel(){
   const p = $("coach-panel");
   const hero = el("div", "hero");
-  hero.innerHTML = '<svg class="herobg" viewBox="0 0 360 140" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
-    '<defs><radialGradient id="hg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset=".35" stop-color="#bcd4ff" stop-opacity=".55"/><stop offset="1" stop-color="#6c9bff" stop-opacity="0"/></radialGradient>' +
-    '<linearGradient id="fb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a3582f"/><stop offset="1" stop-color="#5b2d16"/></linearGradient></defs>' +
-    '<circle cx="282" cy="22" r="26" fill="url(#hg)"/><circle cx="318" cy="30" r="20" fill="url(#hg)"/><circle cx="246" cy="34" r="16" fill="url(#hg)" opacity=".8"/>' +
-    '<g fill="#e8f0ff" opacity=".9"><rect x="274" y="19" width="16" height="5" rx="1"/><rect x="312" y="27" width="12" height="4" rx="1"/><rect x="240" y="31" width="12" height="4" rx="1"/></g>' +
-    '<path d="M0 118c60-18 120-24 200-20s120 10 160 20v22H0z" fill="#0a1d4d" opacity=".75"/>' +
-    '<g transform="translate(262 100) rotate(-22)"><ellipse cx="0" cy="0" rx="78" ry="42" fill="url(#fb)"/><path d="M-62 -14q62 -22 124 0" stroke="#e9d9cc" stroke-width="3" fill="none" opacity=".85"/>' +
-    '<path d="M-46 -2h92" stroke="#f3ece4" stroke-width="3.4"/><g stroke="#f3ece4" stroke-width="3" stroke-linecap="round"><path d="M-28 -9v14M-14 -9v14M0 -9v14M14 -9v14M28 -9v14"/></g>' +
-    '<ellipse cx="0" cy="0" rx="78" ry="42" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="2"/></g></svg>';
   const ht = el("div", "herotitle"); ht.append(el("span", "", "Coach\u2019s"), el("span", "", "Game Plan"));
   const ul = svgEl(150, 10, underlinePath(hashStr("gameplan")), "0 0 100 8"); ul.setAttribute("preserveAspectRatio", "none"); ht.append(ul);
   hero.append(ht); p.append(hero);
