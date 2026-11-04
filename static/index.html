@@ -582,6 +582,29 @@ details.film h3{margin:14px 0 4px;font-size:18px}
 .welcome .howlink{color:#9fbcff;font-weight:600;padding:6px 0 0;min-height:0}
 .note .howlink{display:inline;padding:0;min-height:0;color:var(--blue);font-weight:600}
 .faq .try{color:var(--blue);font-weight:700;text-decoration:none;padding:8px 0;min-height:44px;font-size:15.5px}
+
+/* ================= guests and accounts ================= */
+.lockcard{display:none;text-align:center;background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:26px 20px 22px;margin:8px 0 14px}
+.locked > .lockcard{display:block}
+.locked > *:not(.lockcard){display:none !important}
+.lockcard .lk{width:64px;height:64px;margin:0 auto 12px;border-radius:50%;background:#e8effd;color:var(--blue);display:grid;place-items:center}
+.lockcard .lk svg,.lockrow .lk svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.lockcard .lt{font:italic 800 25px/1.05 var(--cond);text-transform:uppercase}
+.lockcard p{margin:10px 0 16px;font-size:15px;color:#39445c}
+.lockrow{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:12px 14px;margin:0 0 12px}
+.lockrow .lk{flex:0 0 auto;width:44px;height:44px;border-radius:50%;background:#e8effd;color:var(--blue);display:grid;place-items:center}
+.lockrow .lk svg{width:22px;height:22px}
+.lockrow .lx{flex:1;font-size:14.5px}
+.lockrow button{flex:0 0 auto;min-height:40px;padding:6px 12px;font-size:14px}
+.guestbar{background:#e9f0fe;border:1px solid #cddcfa;border-radius:18px;padding:12px 14px;margin:0 0 12px}
+.guestbar .gt{font:italic 800 19px/1.1 var(--cond);text-transform:uppercase}
+.guestbar p{margin:6px 0 10px;font-size:14.5px;color:#2d364a}
+.tile.locked .tv,.tile .tv.lockv{font-size:26px;color:#6b7690}
+.navrow .lockic{margin-left:auto;color:#8a94ab;display:grid;place-items:center}
+.navrow .lockic svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.perks{margin:6px 0 4px;padding-left:20px;font-size:14.5px;color:#2d364a}
+.perks li{margin:0 0 3px}
+.groupnote.why{color:var(--blue);font-weight:600}
 </style>
 </head>
 <body>
@@ -865,7 +888,9 @@ async function api(path, body, method){
     headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : undefined);
   if (!r.ok){
     const d = await r.json().catch(() => ({}));
-    throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong.");
+    const msg = typeof d.detail === "string" ? d.detail : "Something went wrong.";
+    if (r.status === 401 && /^Sign in to use/.test(msg)) { try { loadAccount(); } catch (e){} }
+    throw new Error(msg);
   }
   return r.json();
 }
@@ -1118,16 +1143,68 @@ async function analyzeTrade(){
 }
 
 /* ---- accounts: sign in, and keep leagues between visits and devices ---- */
-const ACCT = {user: null, leagues: [], persistent: true, open: false, mode: "signin", view: "form", code: null, err: "", busy: false};
+const ACCT = {user: null, leagues: [], persistent: true, open: false, mode: "signin", view: "form", code: null, err: "", busy: false, locked: [], after: null, why: ""};
+/* Which features guests can't use is decided by the server (GATED_FEATURES) and arrives with /api/auth/me. */
+const FEATURE = {
+  plan: {name: "Game plan", tab: "plan", pitch: "See your win chance this week and the swaps and pickups that raise it."},
+  league: {name: "League outlook", tab: "league", pitch: "Playoff odds for your league and roster rankings for every team."},
+  trade: {name: "Trade analyzer", tab: "trade", pitch: "See how a trade changes your lineup."},
+  playbook: {name: "Coach\u2019s Playbook", tab: "playbook", pitch: "Film on any player: matchup, workload, and game script."},
+  coach_ai: {name: "AI coach", tab: "playbook", pitch: "Ask questions about any player and get a plain-English answer."}
+};
+const TAB_FEATURE = {plan: "plan", league: "league", trade: "trade", playbook: "playbook"};
+const lockedFor = f => !!f && !ACCT.user && ACCT.locked.includes(f);
+const joinList = a => a.length < 2 ? a.join("") : a.length === 2 ? a.join(" and ") : a.slice(0, -1).join(", ") + ", and " + a[a.length - 1];
+function askSignIn(f){
+  ACCT.after = FEATURE[f].tab; ACCT.why = `Sign in to unlock the ${FEATURE[f].name}. It\u2019s free.`;
+  setTab("more"); acctOpen(true);
+}
+function goAfter(){                                   // after signing in, go back to what the person was trying to open
+  if (!ACCT.after) return false;
+  const t = ACCT.after; ACCT.after = null; ACCT.why = ""; ACCT.open = false;
+  renderAccountBar(); renderAuthPanel(); setTab(t); return true;
+}
+function lockCard(f){
+  const c = el("div", "lockcard"), lk = el("div", "lk"); lk.append(icon("lock"));
+  c.append(lk, el("div", "lt", `${FEATURE[f].name} is free with an account`), el("p", "", FEATURE[f].pitch));
+  const b = el("button", "primary", "Sign in or create account"); b.type = "button"; b.onclick = () => askSignIn(f); c.append(b); return c;
+}
+function lockRow(f, text){
+  const r = el("div", "lockrow"), lk = el("div", "lk"); lk.append(icon("lock"));
+  const b = el("button", "primary", "Sign in"); b.type = "button"; b.onclick = () => askSignIn(f);
+  r.append(lk, el("div", "lx", text), b); return r;
+}
+function buildLockCards(){
+  Object.entries(TAB_FEATURE).forEach(([t, f]) => { const pn = $(t + "-panel"); if (pn) pn.prepend(lockCard(f)); });
+  applyLocks();
+}
+function updateGatedText(){
+  const g = $("how-gated"); if (!g) return;
+  const names = ACCT.locked.map(f => FEATURE[f].name);
+  g.textContent = names.length ? `Without an account you can use most of the app. A free account unlocks the ${joinList(names)}, and saves your leagues on every device.`
+    : "Everything in the app is open to everyone. An account saves your leagues on every device.";
+}
+function applyLocks(){
+  let justUnlocked = false;
+  Object.entries(TAB_FEATURE).forEach(([t, f]) => {
+    const pn = $(t + "-panel"); if (!pn) return;
+    const was = pn.classList.contains("locked"), now = lockedFor(f);
+    pn.classList.toggle("locked", now); if (was && !now && tab === t) justUnlocked = true;
+  });
+  updateGatedText();
+  if (tab === "coach") renderHub();
+  if (justUnlocked) setTab(tab);
+}
 
 async function loadAccount(){
   try { applyAccount(await api("/api/auth/me")); } catch (e){ /* accounts are optional; the app works without them */ }
 }
 function applyAccount(j){
   ACCT.user = j.user || null; ACCT.leagues = j.leagues || []; ACCT.persistent = j.persistent !== false;
-  renderAccountBar(); renderAuthPanel(); renderSaved();
+  if (Array.isArray(j.locked)) ACCT.locked = j.locked;
+  renderAccountBar(); renderAuthPanel(); renderSaved(); applyLocks();
 }
-function acctOpen(on){ ACCT.open = on; ACCT.err = ""; renderAuthPanel(); const ap = document.getElementById("auth-panel"); if (on && ap.scrollIntoView) ap.scrollIntoView({block: "nearest"}); }
+function acctOpen(on){ ACCT.open = on; ACCT.err = ""; if (!on) ACCT.why = ""; renderAuthPanel(); const ap = document.getElementById("auth-panel"); if (on && ap.scrollIntoView) ap.scrollIntoView({block: "nearest"}); }
 
 function paintAcctBtn(){
   const b = $("acct-btn");
@@ -1143,7 +1220,7 @@ function renderAccountBar(){
     const b = el("button", "", ACCT.open ? "Close" : "My account"); b.onclick = () => acctOpen(!ACCT.open); bar.append(b);
   } else {
     const b = el("button", "", ACCT.open ? "Close" : "Sign in or create account"); b.onclick = () => acctOpen(!ACCT.open); bar.append(b);
-    bar.append(el("span", "", "to save your leagues"));
+    bar.append(el("span", "", ACCT.locked.length ? "to unlock more features" : "to save your leagues"));
   }
 }
 
@@ -1170,6 +1247,7 @@ function renderAuthPanel(){
   if (!ACCT.open) return;
   const err = () => ACCT.err ? [el("p", "status err", ACCT.err)] : [];
   if (!ACCT.persistent) p.append(el("p", "status err", "Heads up: this site isn\u2019t connected to permanent storage yet, so accounts and sign-ins are erased whenever the site restarts or goes to sleep. You would have to create your account again."));
+  if (ACCT.why && !ACCT.user) p.append(el("p", "groupnote why", ACCT.why));
 
   if (ACCT.code){                                          // shown once, right after sign-up or a reset
     p.append(heading("h3", "Save your recovery code"));
@@ -1178,7 +1256,7 @@ function renderAuthPanel(){
     const copy = el("button", "", "Copy the code"); copy.onclick = async () => { try { await navigator.clipboard.writeText(ACCT.code); copy.textContent = "Copied"; } catch (e){ copy.textContent = "Select it and copy by hand"; } };
     const ok = el("label", ""); const cb = el("input"); cb.type = "checkbox"; cb.style.cssText = "width:auto;margin:0 8px 0 0;min-height:0"; ok.append(cb, document.createTextNode("I\u2019ve saved my recovery code"));
     const go = el("button", "primary", "Continue"); go.disabled = true; cb.onchange = () => { go.disabled = !cb.checked; };
-    go.onclick = () => { ACCT.code = null; renderAuthPanel(); };
+    go.onclick = () => { ACCT.code = null; renderAuthPanel(); goAfter(); };
     p.append(copy, el("div"), ok, go); return;
   }
 
@@ -1215,12 +1293,18 @@ function renderAuthPanel(){
   const modes = el("div", "modes");
   [["signin", "Sign in"], ["signup", "Create account"]].forEach(([m, t]) => { const b = el("button", "", t); b.type = "button"; b.setAttribute("aria-pressed", ACCT.mode === m); b.onclick = () => { ACCT.mode = m; ACCT.err = ""; renderAuthPanel(); }; modes.append(b); });
   p.append(modes);
+  if (ACCT.mode === "signup"){
+    const ul = el("ul", "perks"); ul.append(el("li", "", "Your leagues saved on every device"));
+    ACCT.locked.forEach(f => ul.append(el("li", "", `${FEATURE[f].name}: ${FEATURE[f].pitch}`)));
+    p.append(el("p", "groupnote", "With a free account you get:"), ul);
+  }
   const signup = ACCT.mode === "signup", f = el("form");
   f.append(field("Username", "text", "a-user", "username"), field(signup ? "Password (8 or more characters)" : "Password", "password", "a-pass", signup ? "new-password" : "current-password"));
   const go = el("button", "primary", ACCT.busy ? "Working\u2026" : signup ? "Create account" : "Sign in"); go.type = "submit"; go.disabled = ACCT.busy; go.style.marginTop = "8px";
   f.append(go);
   f.onsubmit = e => { e.preventDefault(); authCall(signup ? "/api/auth/signup" : "/api/auth/login", {username: $("a-user").value.trim(), password: $("a-pass").value},
     j => { if (j.recovery_code) ACCT.code = j.recovery_code; applyAccount(j);
+           if (!ACCT.code && goAfter()) return;
            if (!signup && j.leagues && j.leagues.length){ ACCT.open = false; renderAccountBar(); renderAuthPanel(); loadSaved(preferredSaved(j.leagues)); } }); };
   const uf = f.querySelector("#a-user"); if (uf && ACCT.lastUser) uf.value = ACCT.lastUser;       // don't make people retype it after a typo
   p.append(f, ...err());
@@ -1296,11 +1380,13 @@ const ICONS = {
   bandage: '<path d="m4.5 14.5 10-10a3.5 3.5 0 0 1 5 5l-10 10a3.5 3.5 0 0 1-5-5z"/><path d="m10 8 6 6"/>'
 };
 const icon = k => { const s = document.createElementNS(NS, "svg"); s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true"); s.innerHTML = ICONS[k]; return s; };
-function navRow(ic, title, sub, onclick){
+function navRow(ic, title, sub, onclick, lock){
   const b = el("button", "navrow"); b.type = "button";
   const i = el("span", "ic"); i.append(icon(ic));
   const t = el("span"); t.append(el("div", "t", title), el("div", "s", sub));
-  b.append(i, t, el("span", "chev", "\u203a")); b.onclick = onclick; return b;
+  if (lock){ const lk = el("span", "lockic"); lk.append(icon("lock")); b.append(i, t, lk); }
+  else b.append(i, t, el("span", "chev", "\u203a"));
+  b.onclick = onclick; return b;
 }
 let HEAD = {base: "", ids: {}};
 /* Clear a plain background from a photo that has one. Photos that are already cutouts, or whose background is not a single flat
@@ -1514,6 +1600,7 @@ function buildHowPanel(){
     const body = el("div", "body");
     const para = t => { const x = el("p"); x.innerHTML = t; return x; };
     (s.paras || []).forEach(t => body.append(para(t)));
+    if (s.acct){ const gp = el("p"); gp.id = "how-gated"; body.append(gp); }
     if (s.bullets){ const ul = el("ul"); s.bullets.forEach(t => { const li = el("li"); li.innerHTML = t; ul.append(li); }); body.append(ul); }
     (s.after || []).forEach(t => body.append(para(t)));
     if (s.terms){ const dl = el("dl"); s.terms.forEach(([k, v]) => dl.append(el("dt", "", k), el("dd", "", v))); body.append(dl); }
@@ -1524,6 +1611,7 @@ function buildHowPanel(){
     }
     d.append(body); p.append(d);
   });
+  updateGatedText();
   p.append(el("p", "howfoot", "Big Game Fantasy is for entertainment and information. Nothing here is betting or financial advice."));
 }
 
@@ -1559,16 +1647,11 @@ function buildCoachPanel(){
   const ht = el("div", "herotitle"); ht.append(el("span", "", "Coach\u2019s"), el("span", "", "Game Plan"));
   const ul = svgEl(150, 10, underlinePath(hashStr("gameplan")), "0 0 100 8"); ul.setAttribute("preserveAspectRatio", "none"); ht.append(ul);
   hero.append(ht); p.append(hero);
+  const gb = el("div", "guestbar"); gb.id = "hub-guest"; p.append(gb);
   const lc = el("div", "leaguecard"); lc.id = "hub-league"; p.append(lc);
   const tiles = el("div", "tiles"); tiles.id = "hub-tiles"; p.append(tiles);
   p.append(heading("h3", "Coach\u2019s toolbox"));
-  const tb = el("div", "toolbox");
-  tb.append(navRow("book", "Playbook", "Film, matchup, and workload for any player", () => setTab("playbook")),
-    navRow("warn", "Injury report", "The latest news on your players", () => setTab("injuries")),
-    navRow("swap", "Trade analyzer", "See how a trade changes your lineup", () => setTab("trade")),
-    navRow("board", "Game plan", "Your win chance and the swaps that raise it", () => setTab("plan")),
-    navRow("up", "Next man up", "Who gains when a starter is out", () => setTab("nextup")));
-  p.append(tb);
+  const tb = el("div", "toolbox"); tb.id = "hub-tools"; p.append(tb);
 }
 
 function tile(kind, label, ic, body, onclick){
@@ -1585,6 +1668,17 @@ function playerBody(p, sub){
 
 function renderHub(){
   const lg = curLeague(), c = ctx(), key = leagueKeyNow();
+  const gb = $("hub-guest"); gb.replaceChildren();
+  if (!ACCT.user && ACCT.locked.length){
+    gb.style.display = "";
+    gb.append(el("div", "gt", "You\u2019re browsing as a guest"), el("p", "", `A free account unlocks the ${joinList(ACCT.locked.map(f => FEATURE[f].name))}, and saves your leagues on every device.`));
+    const sb = el("button", "primary", "Sign in or create account"); sb.type = "button"; sb.onclick = () => { ACCT.after = null; ACCT.why = ""; setTab("more"); acctOpen(true); }; gb.append(sb);
+  } else gb.style.display = "none";
+  const tools = [["book", "Playbook", "Film, matchup, and workload for any player", "playbook", "playbook"], ["warn", "Injury report", "The latest news on your players", "injuries", null],
+    ["swap", "Trade analyzer", "See how a trade changes your lineup", "trade", "trade"], ["board", "Game plan", "Your win chance and the swaps that raise it", "plan", "plan"],
+    ["up", "Next man up", "Who gains when a starter is out", "nextup", null]];
+  $("hub-tools").replaceChildren(...tools.map(([ic, ti, su, tb_, f]) => lockedFor(f) ? navRow(ic, ti, "Sign in to unlock", () => askSignIn(f), true) : navRow(ic, ti, su, () => setTab(tb_))));
+  const lockedTile = (label, ic, f) => tile("dim", label, "lock", [el("div", "tv lockv", "Locked"), el("div", "ts", "Sign in to unlock")], () => askSignIn(f));
   const lc = $("hub-league"); lc.replaceChildren();
   if (!lg){
     lc.append(el("div", "lname", "No league loaded yet"), el("p", "groupnote", "Load your league on the Team tab, and this page fills in with your matchup, your best start, and who to pick up."));
@@ -1599,7 +1693,8 @@ function renderHub(){
   const t = [];
   // win odds
   const planOK = HUB.plan && HUB.planKey === key;
-  if (planOK) t.push(tile("", "Win odds", "trophy", [el("div", "tv", pct0(HUB.plan.win_prob)), el("div", "ts", `${HUB.plan.stance} this week`)], () => setTab("plan")));
+  if (lockedFor("plan")) t.push(lockedTile("Win odds", "trophy", "plan"));
+  else if (planOK) t.push(tile("", "Win odds", "trophy", [el("div", "tv", pct0(HUB.plan.win_prob)), el("div", "ts", `${HUB.plan.stance} this week`)], () => setTab("plan")));
   else if (lg && lg.league_id) t.push(tile("dim", "Win odds", "trophy", [el("div", "tv", "Check"), el("div", "ts", "Tap to simulate this week\u2019s matchup")], () => { setTab("plan"); runPlan(); }));
   else t.push(tile("dim", "Win odds", "trophy", [el("div", "tv", "\u2014"), el("div", "ts", lg ? "Needs a Sleeper league" : "Load a league first")], () => setTab(lg ? "plan" : "mine")));
   // best start
@@ -1618,7 +1713,8 @@ function renderHub(){
     : tile("dim", "Waiver alert", "plus", [el("div", "tv", "\u2014"), el("div", "ts", lg && lg.manual ? "Needs a league to see who is available" : "Load a league first")], () => setTab("mine")));
   // league outlook
   const lgOK = LG && LG_FOR === key, meT = lgOK ? LG.teams.find(x => x.mine) : null;
-  if (meT && LG.playoff_teams) t.push(tile("", "League outlook", "chart", [el("div", "tv", pct0(meT.playoff)), el("div", "ts", "Chance to make the playoffs")], () => setTab("league")));
+  if (lockedFor("league")) t.push(lockedTile("League outlook", "chart", "league"));
+  else if (meT && LG.playoff_teams) t.push(tile("", "League outlook", "chart", [el("div", "tv", pct0(meT.playoff)), el("div", "ts", "Chance to make the playoffs")], () => setTab("league")));
   else if (meT) t.push(tile("", "League outlook", "chart", [el("div", "tv", ordinal(meT.rank.overall)), el("div", "ts", "Roster strength in your league")], () => setTab("league")));
   else if (lg) t.push(tile("dim", "League outlook", "chart", [el("div", "tv", "Check"), el("div", "ts", "Tap for playoff odds and roster rankings")], () => { setTab("league"); if ($("league-go").style.display !== "none") runLeague(); }));
   else t.push(tile("dim", "League outlook", "chart", [el("div", "tv", "\u2014"), el("div", "ts", "Load a league first")], () => setTab("mine")));
@@ -1748,7 +1844,9 @@ function renderPlaybook(){
     d.append(el("p", "groupnote", "Everything here comes from the data in this app, and where we can\u2019t see something, we say so."));
     parts.push(d);
   }
-  if (f.ai && p.on_slate){
+  if (f.ai && p.on_slate && lockedFor("coach_ai")){
+    parts.push(heading("h3", "Ask the coach")); parts.push(lockRow("coach_ai", "Sign in to ask the AI coach about this player. It\u2019s free."));
+  } else if (f.ai && p.on_slate){
     parts.push(heading("h3", "Ask the coach"));
     if (PB.ai && PB.ai.error) parts.push(el("p", "status err", PB.ai.error));
     const row = el("div", "askrow"), q = el("input"); q.type = "text"; q.id = "pb-ask"; q.maxLength = 300;
@@ -2277,16 +2375,17 @@ function setTab(t){
   for (const k of PANELS) $(k + "-panel").style.display = t === k ? "" : "none";
   out.style.display = (t === "mine" || t === "top") ? "" : "none";
   $("go").style.display = t === "top" ? "" : "none";
-  $("weekbar").style.display = (t === "more" || t === "coach" || t === "how") ? "none" : "";
+  const tf = TAB_FEATURE[t]; if (tf) $(t + "-panel").classList.toggle("locked", lockedFor(tf));
+  $("weekbar").style.display = (t === "more" || t === "coach" || t === "how" || lockedFor(tf)) ? "none" : "";
   $("welcome").style.display = (t === "mine" && !LEAGUES.length) ? "" : "none";
   const nt = document.querySelector(".note"); if (nt) nt.style.display = (t === "mine" || t === "top" || t === "more") ? "" : "none";
   const bk = t === "weather" ? [WX_FROM, WX_FROM === "coach" ? "Coach" : "More"] : BACK_TO[t]; $("backbar").style.display = bk ? "" : "none";
   if (bk){ $("back-label").textContent = bk[1]; $("back").onclick = () => setTab(bk[0]); }
   window.scrollTo(0, 0);
-  if (t === "trade"){ refreshTrade(); return; }
-  if (t === "plan"){ refreshPlan(); return; }
-  if (t === "playbook"){ showPlaybook(); return; }
-  if (t === "league"){ refreshLeague(); return; }
+  if (t === "trade"){ if (lockedFor("trade")) return; refreshTrade(); return; }
+  if (t === "plan"){ if (lockedFor("plan")) return; refreshPlan(); return; }
+  if (t === "playbook"){ if (lockedFor("playbook")) return; showPlaybook(); return; }
+  if (t === "league"){ if (lockedFor("league")) return; refreshLeague(); return; }
   if (t === "nextup"){ showNextUp(); return; }
   if (t === "injuries"){ showInjuries(); return; }
   if (t === "weather"){ showWeather(); return; }
@@ -2329,6 +2428,7 @@ buildMorePanel();
 buildHowPanel();
 buildInjuriesPanel();
 buildCoachPanel();
+buildLockCards();
 
 (async () => {
   try {
